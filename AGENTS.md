@@ -94,9 +94,10 @@ Notes:
 
 * Source of truth: docs/tech-context.md for architecture, flows, tooling, and key decisions; validate with code.
 * README: external-facing overview and setup.
+* CHANGELOG.md: keep up to date with all changes, releases, and features, following Keep a Changelog format.
 * Issue tracking: create markdown file per issue in docs/issues/ with sections: description, context, date, impact, investigation, resolution, status.
 * Docstrings: Google style, explain args, returns, raises, examples.
-* Update docs: after completing tasks, update docs/, tech-context.md, README.md, and project structure chart.
+* Update docs: after completing tasks, update docs/, tech-context.md, README.md, CHANGELOG.md, and project structure chart.
 * Write ASCII charts for state machine diagrams, mapping out all paths and flows.
 
 ## 9) Security Best Practices
