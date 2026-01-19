@@ -1,5 +1,8 @@
 # Jarvis - Personal AI System
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+
 A self-hosted, sovereign personal AI assistant running on local hardware, accessible via Telegram.
 
 **Status:** 🚧 Under Active Development
@@ -43,7 +46,7 @@ Jarvis is a "Second Brain" that helps you:
 
 ```bash
 # Clone repository
-git clone https://github.com/yourusername/jarvis.git
+git clone https://github.com/joaomj/jarvis.git
 cd jarvis
 
 # Install dependencies
