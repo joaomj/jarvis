@@ -49,7 +49,21 @@ Jarvis is a personal AI assistant accessible via Telegram that provides a unifie
 
 ### 1.3 MVP Scope
 
-The first release focuses on the highest-pain use case: **summarizing saved X (Twitter) threads and Substack articles**. Users send a URL via Telegram, receive a summary, and the original content is archived as markdown.
+The first release focuses on **replacing the OpenCode TUI with Telegram for mobile use**. The primary use case: accessing OpenCode AI assistance from an iPhone where the terminal interface is unusable due to screen size constraints.
+
+**Phase 1 (MVP)**: Telegram as OpenCode Interface
+- Send text messages to Telegram bot
+- Messages forwarded directly to OpenCode Server API
+- Responses returned via Telegram
+- All OpenCode commands work (/undo, /share, /compact, etc.)
+- Single persistent session per user
+
+**Phase 2**: Enhanced Features  
+- URL summarization (X threads, Substack articles)
+- Voice message transcription
+- Content archiving
+
+The bot acts as a **pure passthrough** - no command translation, no custom logic. OpenCode handles all intelligence including command parsing, LLM calls, file operations, and session management.
 
 ---
 
@@ -85,32 +99,39 @@ Create a **personal consigliere** that:
 
 ## 3. Goals and Non-Goals
 
-### 3.1 Goals (MVP)
+### 3.1 Goals (MVP - Phase 1)
 
 | ID | Goal | Success Criteria |
 |----|------|------------------|
-| G1 | Summarize X threads via Telegram | URL in -> summary out in <30s |
-| G2 | Summarize Substack articles | URL in -> summary out in <30s |
-| G3 | Archive original content as markdown | Syncthing-synced, grep-able |
-| G4 | Voice message support | Whisper transcription, text response |
-| G5 | General chat via OpenCode | Passthrough to OpenCode server |
-| G6 | Single user security | Only owner can interact |
-| G7 | Portable data | All data in filesystem, Syncthing-ready |
+| G1 | **Telegram-OpenCode bridge** | Text in -> OpenCode response out in <15s |
+| G2 | OpenCode command support | /undo, /share, /compact, /new work via Telegram |
+| G3 | Single user security | Only allowed Telegram user ID can interact |
+| G4 | Session persistence | One session per user, continuous context |
+| G5 | Mobile-friendly responses | Chunked if >4096 chars, markdown formatted |
 
-### 3.2 Goals (Post-MVP)
+### 3.2 Goals (Phase 2)
+
+| ID | Goal | Success Criteria |
+|----|------|------------------|
+| G6 | Summarize X threads via Telegram | URL in -> summary out in <30s |
+| G7 | Summarize Substack articles | URL in -> summary out in <30s |
+| G8 | Archive original content as markdown | Syncthing-synced, grep-able |
+| G9 | Voice message support | Whisper transcription, text response |
+| G10 | Private mode (unlogged conversations) | Toggle via command |
+
+### 3.3 Goals (Phase 3+)
 
 | ID | Goal | Phase |
 |----|------|-------|
-| G8 | Conversation modes (Fast/Thinking) | Phase 2 |
-| G9 | PDF/file upload and discussion | Phase 2 |
-| G10 | Private mode (unlogged conversations) | Phase 2 |
-| G11 | Remote OpenCode project control | Phase 3 |
-| G12 | Google Calendar alerts | Phase 4 |
-| G13 | Weather notifications | Phase 4 |
-| G14 | Deep Research reports | Phase 5 |
-| G15 | Memory/learning system | Phase 6 |
+| G11 | Conversation modes (Fast/Thinking) | Phase 3 |
+| G12 | PDF/file upload and discussion | Phase 3 |
+| G13 | Remote OpenCode project control | Phase 4 |
+| G14 | Google Calendar alerts | Phase 5 |
+| G15 | Weather notifications | Phase 5 |
+| G16 | Deep Research reports | Phase 6 |
+| G17 | Memory/learning system | Phase 6 |
 
-### 3.3 Non-Goals (Explicit Exclusions)
+### 3.4 Non-Goals (Explicit Exclusions)
 
 | Non-Goal | Rationale |
 |----------|-----------|
@@ -155,7 +176,55 @@ Create a **personal consigliere** that:
 
 ## 5. User Stories and Use Cases
 
-### 5.1 Epic 1: URL Summarization (MVP)
+### 5.0 Epic 0: Telegram-OpenCode Bridge (MVP - Phase 1)
+
+#### US-0.1: Chat via Telegram
+```
+AS A user
+I WANT TO send text messages to Telegram and receive OpenCode responses
+SO THAT I can use OpenCode AI from my iPhone without the TUI
+```
+
+**Acceptance Criteria**:
+- [ ] Telegram bot receives text messages from allowed user only
+- [ ] Messages starting with `/` are sent to `POST /session/:id/command`
+- [ ] Regular messages are sent to `POST /session/:id/message`
+- [ ] OpenCode responses returned via Telegram
+- [ ] Responses >4096 chars are chunked at natural boundaries
+- [ ] Session persists across messages (continuous context)
+- [ ] All OpenCode commands work: /undo, /redo, /share, /compact, /new, /sessions
+
+**Message Routing**:
+```
+User: /undo
+Bot: [Sends to POST /session/:id/command with {"command": "undo"}]
+Bot: [Returns OpenCode response]
+
+User: explain @src/config.py
+Bot: [Sends to POST /session/:id/message with {"parts": [{"type": "text", "text": "explain @src/config.py"}]}]
+Bot: [Returns OpenCode response with file analysis]
+
+User: !ls -la
+Bot: [Sends to POST /session/:id/message with {"parts": [{"type": "text", "text": "!ls -la"}]}]
+Bot: [Returns bash output from OpenCode]
+```
+
+#### US-0.2: Session Management via Commands
+```
+AS A user
+I WANT TO use OpenCode session commands from Telegram
+SO THAT I can manage conversations without the TUI
+```
+
+**Acceptance Criteria**:
+- [ ] `/new` or `/clear` creates new OpenCode session
+- [ ] `/sessions` lists available sessions
+- [ ] `/undo` reverts last message and file changes
+- [ ] `/redo` restores undone message
+- [ ] `/share` generates shareable session link
+- [ ] `/compact` summarizes session context
+
+### 5.1 Epic 1: URL Summarization (Phase 2)
 
 #### US-1.1: Summarize X Thread
 ```
@@ -260,39 +329,39 @@ SO THAT no one else can interact with my assistant
 
 ### 6.1 Message Processing
 
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR-1 | Parse incoming Telegram messages (text, voice, files) | P0 |
-| FR-2 | Route messages based on command prefix | P0 |
-| FR-3 | Inject correlation ID at gateway entry | P0 |
-| FR-4 | Support `/summarize <url>` command | P0 |
-| FR-5 | Support `/help` command | P0 |
-| FR-6 | Support `/private <message>` command | P1 |
-| FR-7 | Support `/mode <fast|thinking>` command | P1 |
-| FR-8 | Forward non-command text to OpenCode | P0 |
-| FR-9 | Transcribe voice messages via Whisper | P0 |
-| FR-10 | Format responses for Telegram markdown | P0 |
+| ID | Requirement | Priority | Phase |
+|----|-------------|----------|-------|
+| FR-1 | Parse incoming Telegram messages (text only for MVP) | P0 | 1 |
+| FR-2 | Route messages based on command prefix | P0 | 1 |
+| FR-3 | Inject correlation ID at gateway entry | P0 | 1 |
+| FR-4 | Support `/summarize <url>` command | P0 | 2 |
+| FR-5 | Support `/help` command | P0 | 1 |
+| FR-6 | Support `/private <message>` command | P1 | 2 |
+| FR-7 | Support `/mode <fast|thinking>` command | P1 | 3 |
+| FR-8 | Forward non-command text to OpenCode | P0 | 1 |
+| FR-9 | Transcribe voice messages via Whisper | P0 | 2 |
+| FR-10 | Format responses for Telegram markdown | P0 | 1 |
 
 ### 6.2 Content Extraction
 
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR-11 | Extract X threads via GraphQL API | P0 |
-| FR-12 | Fall back to Playwright if API fails | P1 |
-| FR-13 | Extract Substack articles (public) | P0 |
-| FR-14 | Extract generic articles via trafilatura | P0 |
-| FR-15 | Handle extraction errors gracefully | P0 |
-| FR-16 | Cache extracted content to avoid re-fetch | P2 |
+| ID | Requirement | Priority | Phase |
+|----|-------------|----------|-------|
+| FR-11 | Extract X threads via GraphQL API | P0 | 2 |
+| FR-12 | Fall back to Playwright if API fails | P1 | 2 |
+| FR-13 | Extract Substack articles (public) | P0 | 2 |
+| FR-14 | Extract generic articles via trafilatura | P0 | 2 |
+| FR-15 | Handle extraction errors gracefully | P0 | 2 |
+| FR-16 | Cache extracted content to avoid re-fetch | P2 | 3 |
 
 ### 6.3 Storage
 
-| ID | Requirement | Priority |
-|----|-------------|----------|
-| FR-17 | Save articles as markdown with YAML frontmatter | P0 |
-| FR-18 | Save summaries as separate markdown files | P0 |
-| FR-19 | Use naming convention: `{source}-{date}-{slug}.md` | P0 |
-| FR-20 | Store conversation history as JSONL | P0 |
-| FR-21 | Support Syncthing folder structure | P0 |
+| ID | Requirement | Priority | Phase |
+|----|-------------|----------|-------|
+| FR-17 | Save articles as markdown with YAML frontmatter | P0 | 2 |
+| FR-18 | Save summaries as separate markdown files | P0 | 2 |
+| FR-19 | Use naming convention: `{source}-{date}-{slug}.md` | P0 | 2 |
+| FR-20 | Store conversation history as JSONL | P1 | 2 |
+| FR-21 | Support Syncthing folder structure | P1 | 4 |
 
 ### 6.4 OpenCode Integration
 
@@ -361,7 +430,7 @@ SO THAT no one else can interact with my assistant
 
 ## 8. System Architecture
 
-### 8.1 High-Level Architecture
+### 8.1 High-Level Architecture (Phase 1 - Simplified)
 
 ```
 +---------------------------------------------------------------------------------+
@@ -369,164 +438,201 @@ SO THAT no one else can interact with my assistant
 |                                                                                  |
 |    +--------------+                                    +--------------+         |
 |    |   Telegram   |                                    |   OpenCode   |         |
-|    |   Servers    |                                    |     Zen      |         |
+|    |   Servers    |                                    |   Server API |         |
 |    +------+-------+                                    +------+-------+         |
 |           |                                                   |                  |
-|           | HTTPS (webhook)                                   | HTTPS (API)     |
+|           | HTTPS (webhook/long-polling)                      | HTTP (local)    |
 |           v                                                   |                  |
 +-----------------------------------+---------------|---------------+---------------+
 |                              TAILSCALE MESH                   |                  |
 |                                                               |                  |
 |    +--------------------------------------------------------------------------+ |
-|    |                         MAC MINI (M4, 16GB)              |               | |
-|    |                                                          |               | |
-|    |    +-------------------------------------------------------------------+ | |
-|    |    |                    DOCKER COMPOSE                   |              | | |
-|    |    |                                                     |              | | |
-|    |    |   +-------------+    +-------------+    +-----------+----+         | | |
-|    |    |   |   Jarvis    |--->|   OpenCode  |<---|               |         | | |
-|    |    |   |   Gateway   |    |   Server    |    |   LLM APIs    |         | | |
-|    |    |   |   :8080     |    |   :4096     |    |               |         | | |
-|    |    |   +------+------+    +-------------+    +---------------+         | | |
-|    |    |          |                                                        | | |
-|    |    |          |           +-------------+                             | | |
-|    |    |          |           |   Whisper   |                             | | |
-|    |    |          +---------->|   (small)   |                             | | |
-|    |    |                      +-------------+                             | | |
-|    |    |                                                                   | | |
-|    |    |   +-------------------------------------------------------------------+ | |
-|    |    |   |                      SHARED VOLUME                        |  | | |
-|    |    |   |                                                           |  | | |
-|    |    |   |   data/                                                   |  | | |
-|    |    |   |   |-- articles/     (original content)                    |  | | |
-|    |    |   |   |-- summaries/    (generated summaries)                 |  | | |
-|    |    |   |   |-- conversations/(chat history JSONL)                  |  | | |
-|    |    |   |   |-- memories/     (agent learnings)                     |  | | |
-|    |    |   |   `-- logs/         (structured JSON logs)                |  | | |
-|    |    |   |                                                           |  | | |
-|    |    |   +-----------------------------------------------------------+  | | |
-|    |    |                              |                                   | | |
-|    |    |   +-------------+           |                                   | | |
-|    |    |   |  Syncthing  |<----------+                                   | | |
-|    |    |   |   :8384     |                                               | | |
-|    |    |   +------+------+                                               | | |
-|    |    |          |                                                       | | |
-|    +----+----------|-------------------------------------------------------+ | |
-|                    |                                                          | |
-|                    | Syncthing Protocol                                       | |
-|                    v                                                          | |
-|    +-----------------------------------+                                        |
-|    |          OTHER DEVICES            |                                        |
-|    |   (iPhone, MacBook, NAS, etc.)    |                                        |
-|    +-----------------------------------+                                        |
+|    |                         MAC MINI (M4, 16GB)                              | |
+|    |                                                                          | |
+|    |    +-------------------------------------------------------------+      | |
+|    |    |                    DOCKER COMPOSE                            |      | |
+|    |    |                                                                |      | |
+|    |    |   +-------------------+        +-------------------------+    |      | |
+|    |    |   |   Jarvis Bot      |------->|   OpenCode Server       |    |      | |
+|    |    |   |   (Python)        |        |   opencode serve :4096  |    |      | |
+|    |    |   |                   |        |                         |    |      |
+|    |    |   |  Responsibilities:|        |  - Session management   |    |      |
+|    |    |   |  - Telegram bot   |        |  - Command execution    |    |      |
+|    |    |   |  - User allowlist |        |  - LLM provider calls   |    |      |
+|    |    |   |  - HTTP client    |        |  - Tool execution       |    |      |
+|    |    |   |  - Response fmt   |        |  - File operations      |    |      |
+|    |    |   +-------------------+        +-------------------------+    |      | |
+|    |    |                                                                |      | |
+|    |    +-------------------------------------------------------------+      | |
+|    |                                                                          | |
+|    +--------------------------------------------------------------------------+ |
 |                                                                                  |
 +----------------------------------------------------------------------------------+
+
+Key Design Decision: Jarvis is a THIN BRIDGE
+- No Gateway abstraction
+- No command interpretation
+- No LLM provider management
+- All intelligence lives in OpenCode Server
+- Jarvis only: receive -> validate -> forward -> format -> respond
 ```
 
-### 8.2 Component Diagram
+### 8.2 Component Diagram (Phase 1)
 
 ```
 +-----------------------------------------------------------------------------+
-|                              JARVIS APPLICATION                              |
+|                              JARVIS BOT                                      |
+|  Pure passthrough - no command interpretation, no business logic             |
 |                                                                              |
 |  +------------------------------------------------------------------------+ |
-|  |                           GATEWAY LAYER                                 | |
+|  |                        TELEGRAM INTERFACE                               | |
 |  |                                                                         | |
 |  |  +---------------+  +---------------+  +---------------+               | |
-|  |  |    Webhook    |  |    Message    |  |   Correlation |               | |
-|  |  |    Handler    |->|    Router     |->|   ID Injector |               | |
-|  |  +---------------+  +---------------+  +---------------+               | |
-|  |                                                                         | |
-|  +------------------------------------------------------------------------+ |
-|                                    |                                         |
-|                                    v                                         |
-|  +------------------------------------------------------------------------+ |
-|  |                           TELEGRAM LAYER                                | |
-|  |                                                                         | |
-|  |  +---------------+  +---------------+  +---------------+               | |
-|  |  |    Message    |  |    Security   |  |   Response    |               | |
-|  |  |    Parser     |  |   (Allowlist) |  |   Formatter   |               | |
+|  |  |  Telegram     |  |    User       |  |   Response    |               | |
+|  |  |  Bot Handler  |  |   Allowlist   |  |   Formatter   |               | |
+|  |  |  (python-     |  |   (silent     |  |   (chunking,  |               | |
+|  |  |   telegram-   |  |   ignore)     |  |   markdown)   |               | |
+|  |  |   bot)        |  |               |  |               |               | |
 |  |  +---------------+  +---------------+  +---------------+               | |
 |  |                                                                         | |
 |  +------------------------------------------------------------------------+ |
 |                                    |                                         |
 |                                    v                                         |
 |  +------------------------------------------------------------------------+ |
-|  |                             CORE LAYER                                  | |
+|  |                      OPENCODE HTTP CLIENT                               | |
 |  |                                                                         | |
 |  |  +---------------+  +---------------+  +---------------+               | |
-|  |  |   Summarizer  |  |     Chat      |  |    Storage    |               | |
-|  |  |               |  |   Handler     |  |    Manager    |               | |
-|  |  +-------+-------+  +-------+-------+  +---------------+               | |
-|  |          |                  |                                           | |
-|  |          v                  v                                           | |
-|  |  +---------------+  +---------------+                                  | |
-|  |  |   Extractor   |  |   OpenCode    |                                  | |
-|  |  |   (X, Web)    |  |    Client     |                                  | |
-|  |  +---------------+  +---------------+                                  | |
+|  |  |   Session     |  |   Message     |  |   Command     |               | |
+|  |  |   Manager     |  |   Sender      |  |   Executor    |               | |
+|  |  |   (1 per user)|  |   (/message)  |  |   (/command)  |               | |
+|  |  +---------------+  +---------------+  +---------------+               | |
+|  |                                                                         | |
+|  |  Responsibilities:                                                      | |
+|  |  - Detect /command vs regular message                                   | |
+|  |  - Route to appropriate OpenCode endpoint                               | |
+|  |  - Parse OpenCode response                                              | |
+|  |  - No command interpretation!                                           | |
 |  |                                                                         | |
 |  +------------------------------------------------------------------------+ |
 |                                    |                                         |
 |                                    v                                         |
 |  +------------------------------------------------------------------------+ |
-|  |                            VOICE LAYER                                  | |
+|  |                      OPENCODE SERVER (External)                         | |
 |  |                                                                         | |
-|  |  +---------------+  +---------------+                                  | |
-|  |  |   Transcriber |  |    Audio      |                                  | |
-|  |  |   (Whisper)   |  |   Processor   |                                  | |
-|  |  +---------------+  +---------------+                                  | |
+|  |  All intelligence lives here:                                           | |
+|  |  - Command parsing (/undo, /share, /compact, etc.)                     | |
+|  |  - LLM provider management                                              | |
+|  |  - Tool execution (bash, file ops, browser)                            | |
+|  |  - Session persistence                                                  | |
+|  |  - File reference resolution (@file)                                    | |
+|  |  - Git operations for undo/redo                                         | |
 |  |                                                                         | |
 |  +------------------------------------------------------------------------+ |
 |                                                                              |
 +------------------------------------------------------------------------------+
 ```
 
-### 8.3 Sequence Diagram: URL Summarization
+### 8.3 Sequence Diagram: Chat Passthrough (Phase 1)
 
 ```
-+------+     +---------+     +---------+     +----------+     +---------+     +---------+
-| User |     |Telegram |     | Gateway |     |Extractor |     |OpenCode |     | Storage |
-+--+---+     +----+----+     +----+----+     +-----+----+     +----+----+     +----+----+
-   |              |               |               |                |               |
-   | /summarize   |               |               |                |               |
-   | x.com/...    |               |               |                |               |
-   |------------->|               |               |                |               |
-   |              |   Webhook     |               |                |               |
-   |              |-------------->|               |                |               |
-   |              |               |               |                |               |
-   |              |               | Inject        |                |               |
-   |              |               | correlation_id|                |               |
-   |              |               |---------------|                |               |
-   |              |               |               |                |               |
-   |              |               | Extract URL   |                |               |
-   |              |               |-------------->|                |               |
-   |              |               |               |                |               |
-   |              |               |               | GraphQL API    |               |
-   |              |               |               |--------------->|               |
-   |              |               |               |<---------------|               |
-   |              |               |               |                |               |
-   |              |               |<--------------|                |               |
-   |              |               | Thread content|                |               |
-   |              |               |               |                |               |
-   |              |               | Save original |                |               |
-   |              |               |---------------|----------------|-------------->|
-   |              |               |               |                |               |
-   |              |               | Summarize     |                |               |
-   |              |               |---------------|--------------->|               |
-   |              |               |               |                |               |
-   |              |               |<--------------|----------------|               |
-   |              |               | Summary       |                |               |
-   |              |               |               |                |               |
-   |              |               | Save summary  |                |               |
-   |              |               |---------------|----------------|-------------->|
-   |              |               |               |                |               |
-   |              | Send response |               |                |               |
-   |              |<--------------|               |                |               |
-   |              |               |               |                |               |
-   |<-------------|               |               |                |               |
-   | Summary msg  |               |               |                |               |
-   |              |               |               |                |               |
++------+     +---------+     +---------+     +----------+
+| User |     |Telegram |     | Jarvis  |     |OpenCode  |
+|      |     |  Bot    |     |  Bot    |     | Server   |
++--+---+     +----+----+     +----+----+     +-----+----+
+   |              |               |               |
+   | "explain      |               |               |
+   |  @main.py"    |               |               |
+   |------------->|               |               |
+   |              |               |               |
+   |              | Forward       |               |
+   |              | message       |               |
+   |              |-------------->|               |
+   |              |               |               |
+   |              |               | Check         |
+   |              |               | allowlist     |
+   |              |               | (silent OK)   |
+   |              |               |               |
+   |              |               | POST          |
+   |              |               | /session/:id  |
+   |              |               | /message      |
+   |              |               |-------------->|
+   |              |               |               |
+   |              |               |               | LLM process
+   |              |               |               | (with @file
+   |              |               |               |  resolution)
+   |              |               |               |
+   |              |               | Response      |
+   |              |               | (parts[])     |
+   |              |               |<--------------|
+   |              |               |               |
+   |              |               | Format for    |
+   |              |               | Telegram      |
+   |              |               | (chunk if     |
+   |              |               |  needed)      |
+   |              |               |               |
+   |              | Send response |               |
+   |              |<--------------|               |
+   |              |               |               |
+   |<-------------|               |               |
+   | [Explanation|               |               |
+   |  of main.py] |               |               |
+   |              |               |               |
 ```
+
+### 8.4 Sequence Diagram: Command Execution (Phase 1)
+
+```
++------+     +---------+     +---------+     +----------+
+| User |     |Telegram |     | Jarvis  |     |OpenCode  |
+|      |     |  Bot    |     |  Bot    |     | Server   |
++--+---+     +----+----+     +----+----+     +-----+----+
+   |              |               |               |
+   | /undo        |               |               |
+   |------------->|               |               |
+   |              |               |               |
+   |              | Forward       |               |
+   |              | message       |               |
+   |              |-------------->|               |
+   |              |               |               |
+   |              |               | Detects /     |
+   |              |               | command       |
+   |              |               | prefix        |
+   |              |               |               |
+   |              |               | POST          |
+   |              |               | /session/:id  |
+   |              |               | /command      |
+   |              |               | {command:     |
+   |              |               |  "undo"}      |
+   |              |               |-------------->|
+   |              |               |               |
+   |              |               |               | Git revert
+   |              |               |               | last commit
+   |              |               |               |
+   |              |               | Response      |
+   |              |               | (undo OK)     |
+   |              |               |<--------------|
+   |              |               |               |
+   |              | Send response |               |
+   |              |<--------------|               |
+   |              |               |               |
+   |<-------------|               |               |
+   | [Last change |               |               |
+   |  reverted]   |               |               |
+   |              |               |               |
+```
+
+### 8.5 Sequence Diagram: URL Summarization (Phase 2)
+
+> To be completed in Phase 2. Simplified flow:
+> 
+> 1. User sends URL via Telegram
+> 2. Jarvis extracts content (X GraphQL or trafilatura)
+> 3. Jarvis saves original to data/articles/
+> 4. Jarvis sends content to OpenCode for summarization
+> 5. Jarvis saves summary to data/summaries/
+> 6. Jarvis returns summary via Telegram
+> 
+> See Epic 1 (Section 5.1) for detailed user stories and acceptance criteria.
 
 ---
 
@@ -829,23 +935,82 @@ class JarvisMessage:
 
 ### 12.2 OpenCode HTTP API Usage
 
+**Key Principle**: Jarvis is a thin bridge. It does NOT interpret commands - it only routes them.
+
+#### Endpoint Selection Logic
+
+| User Input | Jarvis Action | OpenCode Endpoint |
+|------------|---------------|-------------------|
+| Starts with `/` (e.g., `/undo`, `/share`) | Extract command + args | `POST /session/{id}/command` |
+| Regular text (incl. `@file`, `!cmd`) | Forward as-is | `POST /session/{id}/message` |
+
+#### API Endpoints Used
+
 ```python
-# Session creation
-POST /session
-Body: {"title": "jarvis-telegram"}
-Response: {"id": "ses-123", ...}
-
-# Send message
-POST /session/{id}/message
-Body: {
-    "model": {"providerID": "opencode", "modelID": "zen-default"},
-    "parts": [{"type": "text", "text": "Summarize this: ..."}]
-}
-Response: {"info": {...}, "parts": [...]}
-
 # Health check
 GET /global/health
 Response: {"healthy": true, "version": "1.2.3"}
+
+# Create session (one per Telegram user)
+POST /session
+Body: {"title": "jarvis-user-{telegram_user_id}"}
+Response: {"id": "ses-123", ...}
+
+# Send regular message (most common)
+POST /session/{id}/message
+Body: {
+    "parts": [{"type": "text", "text": "explain @src/config.py"}]
+}
+Response: {
+    "info": {"id": "msg-456", "role": "assistant", ...},
+    "parts": [{"type": "text", "text": "This config file..."}]
+}
+
+# Execute slash command
+POST /session/{id}/command
+Body: {
+    "command": "undo",      # without the /
+    "arguments": ""         # for commands with args
+}
+Response: {
+    "info": {"id": "msg-789", ...},
+    "parts": [{"type": "text", "text": "Reverted last changes"}]
+}
+```
+
+#### Supported OpenCode Commands (Passthrough)
+
+All these work transparently via Telegram:
+- `/new`, `/clear` - New session
+- `/undo`, `/redo` - Git-based revert/restore
+- `/share`, `/unshare` - Session sharing
+- `/compact` - Summarize session context
+- `/sessions` - List sessions
+- `/models` - List available models
+- `/help` - Show help
+- `/thinking` - Toggle thinking display
+- Custom commands defined in OpenCode config
+
+**Note**: OpenCode handles all @file references and !bash commands internally. Jarvis just passes the raw text.
+
+**File Access Strategy**:
+OpenCode Server runs with `working_dir: /projects`, mounting the host's `~/projects` directory. This allows:
+- `@jarvis/src/config.py` resolves to `/projects/jarvis/src/config.py`
+- Each project can have its own `AGENTS.md` for project-specific rules
+- Git operations work naturally within project directories
+- Session data stored separately in `/root/.opencode` (via `OPENCODE_HOME`)
+
+#### Response Handling
+
+```python
+# Parse response parts
+for part in response["parts"]:
+    if part["type"] == "text":
+        # Send to Telegram (chunk if >4096 chars)
+        send_telegram_message(part["text"])
+    elif part["type"] == "tool_result":
+        # Include in context or display
+        pass
 ```
 
 ### 12.3 X GraphQL API (Reverse-Engineered)
@@ -943,69 +1108,29 @@ dev = [
 ]
 ```
 
-### 13.3 File Structure
+### 13.3 File Structure (Phase 1 - Simplified)
 
 ```
 jarvis/
 |-- src/
 |   |-- jarvis/
 |   |   |-- __init__.py
-|   |   |-- __main__.py              # Entry point
-|   |   |-- config.py                # pydantic-settings config
+|   |   |-- __main__.py              # Entry point: start bot
+|   |   |-- config.py                # pydantic-settings (env vars)
 |   |   |-- logging.py               # structlog setup
-|   |   |
-|   |   |-- gateway/
-|   |   |   |-- __init__.py
-|   |   |   |-- server.py            # AIOHTTP server
-|   |   |   |-- context.py           # Request context (correlation ID)
-|   |   |   `-- middleware.py        # Logging, error handling
-|   |   |
-|   |   |-- telegram/
-|   |   |   |-- __init__.py
-|   |   |   |-- bot.py               # Bot setup, webhook
-|   |   |   |-- handlers.py          # Command handlers
-|   |   |   |-- parser.py            # Message parsing
-|   |   |   |-- formatter.py         # Response formatting
-|   |   |   `-- security.py          # Allowlist, rate limiting
-|   |   |
-|   |   |-- extractors/
-|   |   |   |-- __init__.py
-|   |   |   |-- base.py              # Abstract extractor
-|   |   |   |-- x_graphql.py         # X GraphQL API
-|   |   |   |-- x_playwright.py      # X Playwright fallback
-|   |   |   |-- substack.py          # Substack extractor
-|   |   |   `-- web.py               # Generic web (trafilatura)
-|   |   |
-|   |   |-- opencode/
-|   |   |   |-- __init__.py
-|   |   |   |-- client.py            # HTTP client wrapper
-|   |   |   `-- session.py           # Session management
-|   |   |
-|   |   |-- core/
-|   |   |   |-- __init__.py
-|   |   |   |-- summarizer.py        # Summarization logic
-|   |   |   |-- chat.py              # Chat passthrough
-|   |   |   `-- storage.py           # Article/conversation storage
-|   |   |
-|   |   `-- voice/
-|   |       |-- __init__.py
-|   |       `-- transcriber.py       # Whisper integration
-|   |
+|   |   |-- bot.py                   # Telegram bot (python-telegram-bot)
+|   |   |-- opencode_client.py       # HTTP client for OpenCode Server
+|   |   `-- formatter.py             # Response formatting for Telegram
+|
 |   `-- py.typed                     # PEP 561 marker
 |
 |-- tests/
 |   |-- __init__.py
 |   |-- conftest.py                  # pytest fixtures
-|   |-- test_extractors/
-|   |   |-- test_x_graphql.py
-|   |   `-- test_web.py
-|   |-- test_telegram/
-|   |   |-- test_parser.py
-|   |   `-- test_security.py
-|   `-- test_core/
-|       `-- test_summarizer.py
+|   |-- test_bot.py                  # Telegram bot tests
+|   `-- test_opencode_client.py      # OpenCode API tests
 |
-|-- data/                            # Runtime data (gitignored)
+|-- data/                            # Runtime data (Phase 2+)
 |   `-- .gitkeep
 |
 |-- docs/
@@ -1013,9 +1138,6 @@ jarvis/
 |   |-- jarvis-ideal.md              # (existing)
 |   |-- prd.md                       # This document
 |   `-- deployment.md                # Deployment guide
-|
-|-- scripts/
-|   `-- setup-x-cookies.py           # Helper to get X cookies
 |
 |-- docker-compose.yml
 |-- Dockerfile
@@ -1027,7 +1149,13 @@ jarvis/
 `-- AGENTS.md                        # OpenCode project config
 ```
 
----
+**Phase 1 Files**:
+- `bot.py`: ~200 lines, handles Telegram webhook/polling, user allowlist, message routing
+- `opencode_client.py`: ~150 lines, HTTP client for OpenCode Server API
+- `config.py`: ~50 lines, pydantic-settings for env vars
+- `formatter.py`: ~100 lines, chunk responses, format markdown for Telegram
+
+
 
 ## 14. Dependencies and Third-Party Integrations
 
@@ -1073,42 +1201,35 @@ jarvis/
 
 ## 15. Deployment Architecture
 
-### 15.1 Docker Compose Configuration
+### 15.1 Docker Compose Configuration (Phase 1)
 
 ```yaml
 version: "3.9"
 
 services:
+  # Jarvis Bot - thin Telegram bridge
   jarvis:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: jarvis-gateway
+    container_name: jarvis-bot
     restart: unless-stopped
-    ports:
-      - "8080:8080"
     environment:
       - JARVIS_ENV=production
+      # Telegram
       - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
       - TELEGRAM_ALLOWED_USERS=${TELEGRAM_ALLOWED_USERS}
-      - TELEGRAM_WEBHOOK_URL=${TELEGRAM_WEBHOOK_URL}
+      - TELEGRAM_MODE=${TELEGRAM_MODE:-polling}  # polling or webhook
+      # OpenCode Server
       - OPENCODE_URL=http://opencode:4096
       - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}
-      - WHISPER_MODEL=small
-      - X_AUTH_TOKEN=${X_AUTH_TOKEN}
-      - X_CT0=${X_CT0}
+      # Logging
       - LOG_LEVEL=INFO
-    volumes:
-      - jarvis-data:/app/data
     depends_on:
       opencode:
         condition: service_healthy
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
 
+  # OpenCode Server - all intelligence lives here
   opencode:
     image: ghcr.io/anomalyco/opencode:latest
     container_name: jarvis-opencode
@@ -1117,46 +1238,54 @@ services:
     environment:
       - OPENCODE_ZEN_API_KEY=${OPENCODE_ZEN_API_KEY}
       - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}
+      # Session metadata storage (keep separate from projects)
+      - OPENCODE_HOME=/root/.opencode
     volumes:
-      - jarvis-data:/app/data
+      # OpenCode config and session data
       - opencode-config:/root/.config/opencode
+      - opencode-data:/root/.opencode
+      # Projects directory (host projects mounted here)
+      - ~/projects:/projects
+    working_dir: /projects
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:4096/global/health"]
       interval: 30s
       timeout: 10s
       retries: 3
 
-  syncthing:
-    image: syncthing/syncthing:latest
-    container_name: jarvis-syncthing
-    hostname: jarvis-sync
-    restart: unless-stopped
-    environment:
-      - PUID=1000
-      - PGID=1000
-    volumes:
-      - jarvis-data:/var/syncthing/data
-      - syncthing-config:/var/syncthing/config
-    ports:
-      - "8384:8384"   # Web UI (local only)
-      - "22000:22000" # Sync protocol
+  # Syncthing - sync data to other devices (Phase 2+)
+  # syncthing:
+  #   image: syncthing/syncthing:latest
+  #   container_name: jarvis-syncthing
+  #   hostname: jarvis-sync
+  #   restart: unless-stopped
+  #   environment:
+  #     - PUID=1000
+  #     - PGID=1000
+  #   volumes:
+  #     - jarvis-data:/var/syncthing/data
+  #     - syncthing-config:/var/syncthing/config
+  #   ports:
+  #     - "8384:8384"   # Web UI (local only)
+  #     - "22000:22000" # Sync protocol
 
 volumes:
-  jarvis-data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: ${PWD}/data
+  # jarvis-data:
+  #   driver: local
+  #   driver_opts:
+  #     type: none
+  #     o: bind
+  #     device: ${PWD}/data
   opencode-config:
-  syncthing-config:
+  opencode-data:
+  # syncthing-config:
 
 networks:
   default:
     name: jarvis-network
 ```
 
-### 15.2 Dockerfile
+### 15.2 Dockerfile (Phase 1)
 
 ```dockerfile
 # syntax=docker/dockerfile:1
@@ -1164,7 +1293,7 @@ FROM python:3.11-slim AS base
 
 WORKDIR /app
 
-# Install system dependencies
+# Install system dependencies (ffmpeg for Phase 2 voice support)
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     ffmpeg \
@@ -1186,12 +1315,8 @@ COPY src/ ./src/
 RUN useradd -m -u 1000 jarvis && chown -R jarvis:jarvis /app
 USER jarvis
 
-# Expose port
-EXPOSE 8080
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+# No ports exposed - bot uses long-polling or webhook callback
+# No healthcheck - bot is a background worker, not a web service
 
 # Run application
 CMD ["pdm", "run", "python", "-m", "jarvis"]
@@ -1219,32 +1344,113 @@ curl -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/setWebhook" \
 curl "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/getWebhookInfo"
 ```
 
-### 15.4 Environment Variables
+### 15.4 Environment Variables (Phase 1)
 
 ```bash
 # .env.example
 
-# Telegram
+# Telegram (required)
 TELEGRAM_BOT_TOKEN=123456:ABC-DEF...
-TELEGRAM_ALLOWED_USERS=12345678,87654321
-TELEGRAM_WEBHOOK_URL=https://jarvis.tailnet-name.ts.net/webhook
+TELEGRAM_ALLOWED_USERS=12345678  # Your Telegram user ID
 
-# OpenCode
-OPENCODE_ZEN_API_KEY=zen_...
-OPENCODE_SERVER_PASSWORD=your-secure-password
+# Telegram mode: 'polling' (default, no public URL needed) or 'webhook' (requires public URL)
+TELEGRAM_MODE=polling
+
+# If using webhook mode, set this:
+# TELEGRAM_WEBHOOK_URL=https://jarvis.tailnet-name.ts.net/webhook
+
+# OpenCode Server (required)
 OPENCODE_URL=http://opencode:4096
+OPENCODE_SERVER_PASSWORD=your-secure-password
 
-# X (Twitter)
-X_AUTH_TOKEN=your-auth-token
-X_CT0=your-ct0-token
+# Note on OpenCode Server configuration:
+# - OPENCODE_ZEN_API_KEY is configured in the OpenCode container
+# - working_dir is set to /projects (mounting ~/projects from host)
+# - Session metadata stored in /root/.opencode (OPENCODE_HOME)
+# - This gives OpenCode direct access to all your projects via @file references
 
-# Whisper
-WHISPER_MODEL=small
-
-# Logging
+# Logging (optional)
 LOG_LEVEL=INFO
 JARVIS_ENV=production
+
+# Phase 2+ Variables (not needed for MVP)
+# WHISPER_MODEL=small
+# X_AUTH_TOKEN=your-auth-token
+# X_CT0=your-ct0-token
 ```
+
+**Getting Your Telegram User ID**:
+1. Message @userinfobot on Telegram
+2. Or start the bot and check logs: `docker logs jarvis-bot | grep user_id`
+
+---
+
+### 15.5 Polling vs Webhook Mode
+
+Jarvis supports two modes for receiving Telegram messages:
+
+#### Polling Mode (Default - Recommended for MVP)
+
+**How it works**: Bot constantly asks Telegram servers "any new messages?" 
+
+**Pros**:
+- No public URL needed
+- Works behind firewalls, NAT, Tailscale
+- Simpler setup
+- Automatic reconnection on network issues
+
+**Cons**:
+- ~1-2 second latency
+- Constant network connection
+- Slightly higher CPU usage (from polling)
+
+**Best for**: MVP, home networks, testing
+
+#### Webhook Mode (Phase 4)
+
+**How it works**: Telegram pushes messages to your bot when they arrive
+
+**Pros**:
+- Near-instant delivery (low latency)
+- Lower CPU usage (no polling loop)
+- More scalable
+
+**Cons**:
+- Requires public HTTPS URL
+- More complex setup (Tailscale Funnel)
+- Network must be reachable from internet
+
+**Best for**: Production, when low latency matters
+
+#### Switching Between Modes
+
+1. Stop the bot: `docker compose down`
+2. Edit `.env` and change `TELEGRAM_MODE`
+3. For webhook: set `TELEGRAM_WEBHOOK_URL` to your Tailscale Funnel URL
+4. Start: `docker compose up -d`
+
+#### Tailscale Funnel Setup (Webhook)
+
+```bash
+# 1. Install Tailscale (if not already)
+brew install tailscale
+
+# 2. Enable Funnel for HTTPS webhook
+tailscale funnel --bg 8080
+
+# 3. Get your Funnel URL
+tailscale funnel status
+# Output: https://jarvis.tailnet-name.ts.net -> http://127.0.0.1:8080
+
+# 4. Update .env
+TELEGRAM_MODE=webhook
+TELEGRAM_WEBHOOK_URL=https://jarvis.tailnet-name.ts.net/webhook
+
+# 5. Restart bot
+docker compose up -d
+```
+
+**Note**: The bot automatically configures the webhook URL on startup when in webhook mode.
 
 ---
 
@@ -1282,72 +1488,61 @@ JARVIS_ENV=production
 
 ## 17. Implementation Phases
 
-### 17.1 Phase 1: Foundation (Week 1)
+### 17.1 Phase 1: Telegram-OpenCode Bridge (MVP - Week 1)
+
+**Goal**: Working Telegram bot that forwards messages to OpenCode and returns responses.
 
 | Task | Description | Deliverable | Estimate |
 |------|-------------|-------------|----------|
 | 1.1 | Project scaffold | pyproject.toml, Dockerfile, docker-compose.yml | 2h |
-| 1.2 | Configuration system | `src/jarvis/config.py` with pydantic-settings | 1h |
-| 1.3 | Logging setup | `src/jarvis/logging.py` with structlog | 1h |
-| 1.4 | Gateway server | `src/jarvis/gateway/server.py` with health endpoint | 2h |
-| 1.5 | Request context | Correlation ID injection middleware | 1h |
+| 1.2 | Configuration | `config.py` with pydantic-settings | 1h |
+| 1.3 | OpenCode client | `opencode_client.py` - HTTP client for Server API | 2h |
+| 1.4 | Telegram bot | `bot.py` - webhook/polling, allowlist, routing | 3h |
+| 1.5 | Response formatter | `formatter.py` - chunking, markdown for Telegram | 1h |
+| 1.6 | Integration test | Test /command and message flow end-to-end | 2h |
 
-**Exit Criteria**: `docker-compose up` starts healthy services, logs in JSON format.
+**Exit Criteria**: 
+- Bot responds to allowed user
+- `/undo`, `/new`, `/share` work via Telegram
+- Regular messages forwarded to OpenCode
+- Responses formatted and returned
 
-### 17.2 Phase 2: Telegram Integration (Week 1-2)
+### 17.2 Phase 2: Voice Messages (Week 2)
 
-| Task | Description | Deliverable | Estimate |
-|------|-------------|-------------|----------|
-| 2.1 | Webhook handler | `src/jarvis/telegram/bot.py` | 2h |
-| 2.2 | Message parser | `src/jarvis/telegram/parser.py` | 2h |
-| 2.3 | Security layer | `src/jarvis/telegram/security.py` (allowlist, rate limit) | 2h |
-| 2.4 | Response formatter | `src/jarvis/telegram/formatter.py` | 1h |
-| 2.5 | Command routing | `/help`, `/summarize` skeleton | 1h |
-
-**Exit Criteria**: Bot responds to allowed users, ignores others, rate limits work.
-
-### 17.3 Phase 3: Content Extraction (Week 2)
+**Goal**: Add voice message transcription.
 
 | Task | Description | Deliverable | Estimate |
 |------|-------------|-------------|----------|
-| 3.1 | Extractor base class | `src/jarvis/extractors/base.py` | 1h |
-| 3.2 | X GraphQL extractor | `src/jarvis/extractors/x_graphql.py` | 4h |
-| 3.3 | X Playwright fallback | `src/jarvis/extractors/x_playwright.py` | 3h |
-| 3.4 | Substack extractor | `src/jarvis/extractors/substack.py` | 2h |
-| 3.5 | Generic web extractor | `src/jarvis/extractors/web.py` (trafilatura) | 1h |
-| 3.6 | Extractor tests | Unit tests with mocked responses | 2h |
+| 2.1 | Whisper setup | Add faster-whisper dependency, model download | 1h |
+| 2.2 | Voice handler | Download voice, transcribe, forward text | 2h |
+| 2.3 | Voice tests | Test voice message flow | 1h |
 
-**Exit Criteria**: Extract X threads, Substack articles, generic URLs successfully.
+**Exit Criteria**: Voice messages transcribed and processed.
 
-### 17.4 Phase 4: Core Logic (Week 2-3)
+### 17.3 Phase 3: URL Summarization (Week 2-3)
 
-| Task | Description | Deliverable | Estimate |
-|------|-------------|-------------|----------|
-| 4.1 | OpenCode client | `src/jarvis/opencode/client.py` | 2h |
-| 4.2 | Session management | `src/jarvis/opencode/session.py` | 2h |
-| 4.3 | Summarizer | `src/jarvis/core/summarizer.py` | 2h |
-| 4.4 | Chat passthrough | `src/jarvis/core/chat.py` | 2h |
-| 4.5 | Storage manager | `src/jarvis/core/storage.py` | 2h |
-
-**Exit Criteria**: Full `/summarize` flow works end-to-end.
-
-### 17.5 Phase 5: Voice & Polish (Week 3)
+**Goal**: Add X thread and Substack summarization.
 
 | Task | Description | Deliverable | Estimate |
 |------|-------------|-------------|----------|
-| 5.1 | Whisper integration | `src/jarvis/voice/transcriber.py` | 3h |
-| 5.2 | Voice message handling | Telegram voice -> Whisper -> process | 2h |
-| 5.3 | Error handling polish | User-friendly error messages | 2h |
-| 5.4 | Integration tests | End-to-end tests | 3h |
-| 5.5 | Deployment guide | `docs/deployment.md` | 2h |
+| 3.1 | URL detection | Detect URLs in messages | 1h |
+| 3.2 | X extractor | `extractors/x.py` - GraphQL API extraction | 4h |
+| 3.3 | Substack extractor | `extractors/substack.py` | 2h |
+| 3.4 | Summarizer | Send extracted content to OpenCode for summary | 2h |
+| 3.5 | Storage | Save articles to data/ directory | 2h |
+| 3.6 | `/summarize` | Command to trigger summarization | 1h |
 
-**Exit Criteria**: Voice messages work, deployment documented.
+**Exit Criteria**: `/summarize https://x.com/...` works end-to-end.
 
-### 17.6 Phase 6: Infrastructure (Week 3-4)
+### 17.4 Phase 4: Polish & Infrastructure (Week 3-4)
 
 | Task | Description | Deliverable | Estimate |
 |------|-------------|-------------|----------|
-| 6.1 | Syncthing configuration | Docker Compose, folder setup | 2h |
+| 4.1 | Error handling | User-friendly error messages | 2h |
+| 4.2 | Rate limiting | Implement request throttling | 1h |
+| 4.3 | Syncthing setup | Docker Compose configuration | 2h |
+| 4.4 | Deployment docs | `docs/deployment.md` | 2h |
+| 4.5 | Testing | Unit and integration tests | 3h |
 | 6.2 | Tailscale webhook setup | Funnel configuration, documentation | 1h |
 | 6.3 | Monitoring | Health checks, restart policies | 1h |
 | 6.4 | X cookie helper | `scripts/setup-x-cookies.py` | 2h |
@@ -1400,6 +1595,8 @@ Week 4: ++++++++++++            Buffer + Real-world testing
 |----------|------------|
 | Telegram or Discord? | Telegram (user preference) |
 | Where to deploy? | Mac Mini with Tailscale |
+| OpenCode working directory? | `/projects` (mounting `~/projects`), sessions in `/root/.opencode` |
+| VPS vs Mac Mini? | Mac Mini primary (direct file access critical for coding) |
 | Which Whisper model? | `small` (balance of speed/accuracy) |
 | Syncthing in Docker? | Yes, included |
 | Logging approach? | File-based, FluentBit-ready |
