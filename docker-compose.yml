@@ -1,0 +1,59 @@
+version: "3.9"
+
+services:
+  jarvis:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jarvis-bot
+    restart: unless-stopped
+    environment:
+      - TELEGRAM_BOT_ID=${TELEGRAM_BOT_ID}
+      - TELEGRAM_USER_ID=${TELEGRAM_USER_ID}
+      - TELEGRAM_WEBHOOK_URL=${TELEGRAM_WEBHOOK_URL}
+      - TELEGRAM_WEBHOOK_PORT=8080
+      - OPENCODE_URL=http://opencode:4096
+      - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}
+      - LOG_LEVEL=${LOG_LEVEL:-INFO}
+      - JARVIS_ENV=${JARVIS_ENV:-production}
+    ports:
+      - "8080:8080"
+    depends_on:
+      opencode:
+        condition: service_healthy
+    networks:
+      - jarvis-network
+    volumes:
+      - jarvis-sessions:/app/data
+
+  opencode:
+    image: ghcr.io/anomalyco/opencode:1.0.0
+    container_name: jarvis-opencode
+    restart: unless-stopped
+    command: serve --hostname 0.0.0.0 --port 4096
+    environment:
+      - OPENCODE_ZEN_API_KEY=${OPENCODE_ZEN_API_KEY}
+      - OPENCODE_SERVER_PASSWORD=${OPENCODE_SERVER_PASSWORD}
+      - OPENCODE_HOME=/root/.opencode
+    volumes:
+      - opencode-config:/root/.config/opencode
+      - opencode-data:/root/.opencode
+      - ~/projects:/projects
+    working_dir: /projects
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4096/global/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - jarvis-network
+
+volumes:
+  jarvis-sessions:
+    driver: local
+  opencode-config:
+  opencode-data:
+
+networks:
+  jarvis-network:
+    name: jarvis-network

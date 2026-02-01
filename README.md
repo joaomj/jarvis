@@ -19,12 +19,11 @@ forwards your messages to OpenCode Server.
 - File references work: `explain @jarvis/src/config.py`
 - Bash commands work: `!ls -la`
 - Single user security (Telegram ID allowlist)
-- Long-polling mode (no public URL needed)
+- Webhook mode via Tailscale Funnel (fast, low latency)
 
 **Phase 2 (Planned)**:
 - URL summarization (X threads, Substack articles)
 - Voice message transcription
-- Webhook mode via Tailscale Funnel
 
 ## Quick Start
 
@@ -58,7 +57,15 @@ forwards your messages to OpenCode Server.
    docker compose up -d
    ```
 
-5. Message your bot on Telegram!
+5. Setup Tailscale Funnel for webhook:
+   ```bash
+   tailscale funnel --bg 8080
+   # Get your URL from: tailscale funnel status
+   # Update TELEGRAM_WEBHOOK_URL in .env
+   docker compose restart jarvis
+   ```
+
+6. Message your bot on Telegram!
 
 ## Architecture
 
@@ -87,19 +94,17 @@ All intelligence lives in OpenCode Server.
 
 See `.env.example` for all configuration options.
 
-### Telegram Mode: Polling vs Webhook
+### Telegram Mode: Webhook (Default)
 
-**Polling (Default - Recommended for MVP)**
-- Pros: No public URL needed, works behind firewalls/Tailscale
-- Cons: Slightly higher latency (~1-2s), constant connection
-- Best for: Initial setup, testing, home networks
-
-**Webhook (Phase 2)**
+**Webhook (Default - Fast, Low Latency)**
 - Pros: Lower latency, instant delivery
-- Cons: Requires public HTTPS URL (via Tailscale Funnel)
-- Best for: Production, when you need responsiveness
+- Setup: Requires Tailscale Funnel for HTTPS URL
+- Best for: All deployments - fast and responsive
 
-See [docs/deployment.md](docs/deployment.md) for webhook setup.
+**Polling (Alternative)**
+- Pros: No public URL needed, works behind firewalls
+- Cons: Higher latency (~1-2s), constant connection
+- Best for: Initial testing only
 
 ## Development
 
@@ -108,7 +113,7 @@ See [docs/deployment.md](docs/deployment.md) for webhook setup.
 pdm install
 
 # Run locally (without Docker)
-TELEGRAM_BOT_TOKEN=xxx TELEGRAM_ALLOWED_USERS=123 pdm run python -m jarvis
+TELEGRAM_BOT_ID=xxx TELEGRAM_USER_ID=123 TELEGRAM_WEBHOOK_URL=https://... pdm run python -m jarvis
 
 # Run tests
 pdm run pytest
@@ -117,29 +122,10 @@ pdm run pytest
 pdm run ruff check .
 ```
 
-## Project Structure
-
-```
-jarvis/
-|-- src/jarvis/
-|   |-- __main__.py          # Entry point
-|   |-- config.py            # Configuration (pydantic-settings)
-|   |-- logging.py           # Structured logging (structlog)
-|   |-- bot.py               # Telegram bot handler
-|   |-- opencode_client.py   # OpenCode HTTP client
-|   `-- formatter.py         # Response formatting
-|-- tests/
-|-- docs/
-|-- docker-compose.yml
-|-- Dockerfile
-`-- pyproject.toml
-```
-
 ## Documentation
 
 - [Product Requirements Document](docs/prd/) - Full specification (20 sections)
 - [Technical Context](docs/tech-context.md) - Architecture decisions
-- [Deployment Guide](docs/deployment.md) - Setup instructions
 
 ## Security
 
@@ -152,16 +138,8 @@ jarvis/
 
 MIT License - see [LICENSE](LICENSE)
 
-Copyright (c) 2026 Joao Marcos Visotaky Junior
-
 ## Acknowledgments
 
 - [OpenCode](https://opencode.ai) - The AI coding assistant that powers Jarvis
 - [python-telegram-bot](https://python-telegram-bot.org/) - Telegram bot framework
 - [Orbstack](https://orbstack.dev) - Fast, lightweight Docker alternative for Mac
-
----
-
-**Building on OpenCode**: This project is related to OpenCode and uses "opencode" 
-as part of its architecture. It is not built by the OpenCode team and is not 
-affiliated with [OpenCode](https://opencode.ai) in any way.

@@ -6,7 +6,7 @@
 ## Current Status
 
 **Phase**: 1 (MVP) - Telegram-OpenCode Bridge  
-**Status**: Development starting  
+**Status**: Implementation complete, ready for deployment  
 **Last Updated**: 2026-02-01
 
 ## Architecture Overview
@@ -83,7 +83,7 @@ This allows:
 - **Host**: Mac Mini M4 (16GB)
 - **Container Runtime**: Orbstack
 - **Network**: Tailscale mesh (no public ports)
-- **Telegram**: Long-polling (MVP) or webhook via Tailscale Funnel (Phase 2)
+- **Telegram**: Webhook via Tailscale Funnel (default - fast, low latency)
 
 ### Why Mac Mini (not VPS)?
 
@@ -92,13 +92,6 @@ This allows:
 3. **Simpler setup**: No NFS mounts, SSH tunnels, or sync complications
 4. **Existing hardware**: Already paid for, sufficient resources (M4, 16GB)
 
-### VPS Fallback (Phase 5+)
-
-For 24/7 availability when Mac Mini is offline:
-- Lightweight bot on VPS
-- Chat only, no file access
-- Phase 1 bot on Mac Mini handles coding tasks
-
 ## Security Model
 
 1. **Network**: No public ports, Tailscale only
@@ -106,35 +99,57 @@ For 24/7 availability when Mac Mini is offline:
 3. **Secrets**: `.env` file, never in code/logs
 4. **Logging**: Structured JSON, correlation IDs
 
-## File Structure (Phase 1)
-
-```
-jarvis/
-|-- src/jarvis/
-|   |-- __main__.py          # Entry point
-|   |-- config.py            # pydantic-settings
-|   |-- logging.py           # structlog setup
-|   |-- bot.py               # Telegram bot
-|   |-- opencode_client.py   # OpenCode HTTP client
-|   `-- formatter.py         # Response formatting
-|-- tests/
-|-- docs/
-|-- docker-compose.yml
-|-- Dockerfile
-`-- pyproject.toml
-```
-
 ## Open Decisions
 
 | Decision | Status | Notes |
 |----------|--------|-------|
-| Webhook vs Polling | Polling for MVP | Webhook requires Tailscale Funnel setup |
-| VPS fallback | Deferred to Phase 5+ | Mac Mini primary for file access |
+| Webhook vs Polling | **Webhook implemented** | Fast delivery via Tailscale Funnel |
+| VPS fallback | **Never** | Mac Mini only - direct file access required |
+
+## References
+
+### OpenCode Server API
+- **Documentation**: https://opencode.ai/docs/server
+- **Local Spec**: `http://localhost:4096/doc` (when server running)
+- **Authentication**: HTTP Basic Auth (username: `opencode`, password from env)
+
+## File Structure
+
+```
+jarvis/
+├── src/jarvis/              # Application source code
+│   ├── __init__.py
+│   ├── __main__.py          # Entry point (webhook server)
+│   ├── bot.py               # Telegram bot implementation
+│   ├── config.py            # Configuration (pydantic-settings)
+│   ├── formatter.py         # Response formatting (markdown, chunking)
+│   ├── logging.py           # Structured logging (structlog)
+│   └── opencode_client.py   # HTTP client for OpenCode Server
+├── tests/                   # Test suite
+│   ├── test_bot.py
+│   ├── test_config.py
+│   ├── test_formatter.py
+│   ├── test_logging.py
+│   └── test_opencode_client.py
+├── docs/                    # Documentation
+│   ├── prd/                 # Product Requirements Document (20 sections)
+│   ├── tech-context.md      # This file - architecture decisions
+│   ├── docker-best-practices.md  # Docker security & optimization
+│   └── what-i-want.md       # Original vision document
+├── Dockerfile               # Multi-stage, non-root, minimal
+├── docker-compose.yml       # Production orchestration
+├── pyproject.toml           # PDM, ruff, pytest configuration
+├── .env.example            # Environment template
+├── .pre-commit-config.yaml  # gitleaks, ruff, mypy hooks
+└── README.md               # Quick start guide
+```
 
 ## Related Documents
 
 - [Product Requirements Document](prd/) - Full specification (20 sections)
 - [README.md](../README.md) - Project overview and quick start
+- [Docker Best Practices](docker-best-practices.md) - Security hardening guide
+- [OpenCode Server API](https://opencode.ai/docs/server) - External API reference
 
 ## Lessons Learned
 
