@@ -137,7 +137,7 @@ jarvis/
 
 ## Documentation
 
-- [Product Requirements Document](docs/prd.md) - Full specification
+- [Product Requirements Document](docs/prd/) - Full specification (20 sections)
 - [Technical Context](docs/tech-context.md) - Architecture decisions
 - [Deployment Guide](docs/deployment.md) - Setup instructions
 

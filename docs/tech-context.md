@@ -131,6 +131,11 @@ jarvis/
 | Webhook vs Polling | Polling for MVP | Webhook requires Tailscale Funnel setup |
 | VPS fallback | Deferred to Phase 5+ | Mac Mini primary for file access |
 
+## Related Documents
+
+- [Product Requirements Document](prd/) - Full specification (20 sections)
+- [README.md](../README.md) - Project overview and quick start
+
 ## Lessons Learned
 
 (Update as we learn)

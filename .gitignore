@@ -19,7 +19,7 @@ env/
 
 # PDM
 .pdm-build/
-*.lock
+.lock
 
 # IDE
 .vscode/
@@ -36,7 +36,6 @@ env/
 
 # Logs
 *.log
-jarvis.log*
 
 # Temporary files
 /tmp/
@@ -78,6 +77,3 @@ docker-compose.override.yml
 
 # Misc
 docs/moltbot/*
-
-# Exceptions
-!docs/moltbot/docs/*
