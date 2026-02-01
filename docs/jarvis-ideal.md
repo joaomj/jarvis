@@ -1,7 +1,7 @@
 # Jarvis Ideal
 
 ## What i want
-- my own version of [clawdbot](https://github.com/clawdbot/clawdbot): leaner, focused on AI assistance and research.
+- my own version of [moltbot](https://github.com/moltbot/moltbot): leaner, focused on AI assistance and research.
 - using the insight that agents work better with filesystem as database for managing context:
     - [agentfs](https://github.com/tursodatabase/agentfs)
     - [Everything is a file](https://turso.tech/blog/nothing-new-under-the-sun)
@@ -47,8 +47,3 @@
 - [Oops, you wrote a database!](https://dx.tips/oops-database)
 - [How to build agents with filesystems and bash](https://vercel.com/blog/how-to-build-agents-with-filesystems-and-bash)
 
-## Books and Scientific Papers for free
-- [Annas Archive API](https://annas-archive.li/faq#api): 
-*We have one stable JSON API for members, for getting a fast download URL: [/dyn/api/fast_download.json](https://annas-archive.li/dyn/api/fast_download.json) (documentation within JSON itself).
-For other use cases, such as iterating through all our files, building custom search, and so on, we recommend [generating](https://software.annas-archive.li/AnnaArchivist/annas-archive/-/blob/main/data-imports/README.md) or [downloading](https://annas-archive.li/torrents#aa_derived_mirror_metadata) our ElasticSearch and MariaDB databases. The raw data can be manually explored through JSON files](https://annas-archive.li/db/aarecord_elasticsearch/md5:8336332bf5877e3adbfb60ac70720cd5.json.html). Our raw torrents list can be downloaded as [JSON](https://annas-archive.li/dyn/torrents.json) as well.*
-- [Semantic Scholar API](https://www.semanticscholar.org/product/api/tutorial): if we use an API key, we get 1 rate per second limit. For our use its sufficient.

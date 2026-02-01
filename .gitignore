@@ -75,3 +75,9 @@ docker-compose.override.yml
 .key
 .pem
 .p12
+
+# Misc
+docs/moltbot/*
+
+# Exceptions
+!docs/moltbot/docs/*
