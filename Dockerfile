@@ -1,46 +1,54 @@
-# syntax=docker/dockerfile:1
-FROM python:3.11-slim AS base
+# Multi-stage build for minimal, secure image
+# Stage 1: Build dependencies
+FROM python:3.12-alpine AS builder
 
-# Security: Run as non-root
-RUN groupadd -r jarvis && useradd -r -g jarvis -u 1000 jarvis
+WORKDIR /build
+
+# Install build dependencies
+RUN apk add --no-cache gcc musl-dev libffi-dev
+
+# Copy dependency files first for caching (include README.md for pyproject.toml)
+COPY pyproject.toml pdm.lock README.md ./
+
+# Copy source code
+COPY src/ ./src/
+
+# Install PDM and dependencies (install package + prod deps)
+RUN pip install --no-cache-dir pdm && \
+    pdm install --prod --no-editable
+
+# Stage 2: Runtime image
+FROM python:3.12-alpine AS runtime
 
 WORKDIR /app
 
-# Install system dependencies (ffmpeg for future voice support)
-# hadolint ignore=DL3008
-RUN set -eux; \
-    apt-get update; \
-    apt-get install -y --no-install-recommends \
-        curl=7.* \
-        ffmpeg=7:* \
-    ; \
-    rm -rf /var/lib/apt/lists/*
+# Create non-root user
+RUN addgroup -S -g 1000 jarvis && \
+    adduser -S -u 1000 -G jarvis jarvis && \
+    mkdir -p /app/.jarvis && \
+    chown -R jarvis:jarvis /app
 
-# Install PDM (version pinned)
-# hadolint ignore=DL3013
-RUN pip install --no-cache-dir pdm==2.22.3
+# Copy virtualenv with installed package from builder
+COPY --from=builder /build/.venv /app/.venv
+COPY --chown=jarvis:jarvis src/ ./src/
 
-# Copy dependency files
-COPY pyproject.toml pdm.lock* ./
-
-# Install dependencies (production only)
-RUN pdm install --prod --no-editable
-
-# Copy application code
-COPY src/ ./src/
-
-# Set proper permissions
-RUN chown -R jarvis:jarvis /app
+# Set environment
+ENV PATH="/app/.venv/bin:$PATH" \
+    PYTHONPATH="/app/src" \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    JARVIS_ENV=production \
+    LOG_LEVEL=INFO
 
 # Switch to non-root user
 USER jarvis
 
-# Webhook port exposure
+# Expose webhook port
 EXPOSE 8080
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8080/health || exit 1
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=5)" || exit 1
 
-# Run application
-CMD ["pdm", "run", "python", "-m", "jarvis"]
+# Run the bot
+CMD ["python", "-m", "jarvis"]

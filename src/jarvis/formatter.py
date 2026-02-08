@@ -9,7 +9,7 @@ Handles:
 
 import re
 
-from jarvis.logging import get_logger
+from jarvis.logging_config import get_logger
 
 logger = get_logger(__name__)
 

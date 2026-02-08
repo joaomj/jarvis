@@ -20,6 +20,7 @@ forwards your messages to OpenCode Server.
 - Bash commands work: `!ls -la`
 - Single user security (Telegram ID allowlist)
 - Webhook mode via Tailscale Funnel (fast, low latency)
+- Modular architecture with command routing
 
 **Phase 2 (Planned)**:
 - URL summarization (X threads, Substack articles)
@@ -121,6 +122,82 @@ pdm run pytest
 # Lint
 pdm run ruff check .
 ```
+
+## Testing the Integration
+
+To verify the Telegram-OpenCode integration is working:
+
+### 1. Run All Tests (in `/Users/admin/projects/jarvis`)
+```bash
+cd /Users/admin/projects/jarvis
+pdm run pytest -v
+```
+
+### 2. Run Specific Test Categories
+```bash
+# Test command routing and handlers
+pdm run pytest tests/test_migration.py -v
+
+# Test OpenCode client integration
+pdm run pytest tests/test_opencode_client.py -v
+
+# Test bot functionality
+pdm run pytest tests/test_bot.py -v
+```
+
+### 3. Test with Live OpenCode Server
+```bash
+# Ensure OpenCode server is running
+curl http://localhost:4096/global/health
+
+# Run bot in test mode (with webhook disabled)
+TELEGRAM_BOT_ID=test TELEGRAM_USER_ID=12345 \
+  TELEGRAM_WEBHOOK_URL=http://localhost:8080 \
+  pdm run python -c "
+from jarvis.bot import JarvisBot
+from jarvis.config import Settings
+import asyncio
+
+settings = Settings(
+    telegram_bot_id='test',
+    telegram_user_id=12345,
+    telegram_webhook_url='http://localhost:8080',
+    opencode_url='http://localhost:4096',
+    opencode_server_password='test'
+)
+bot = JarvisBot(settings)
+
+async def test():
+    # Test OpenCode connection
+    health = await bot.opencode.health_check()
+    print(f'OpenCode health: {health}')
+    
+    # Test session creation
+    session = await bot.opencode.create_session('Test Session')
+    print(f'Created session: {session}')
+
+asyncio.run(test())
+"
+```
+
+### 4. Manual Telegram Testing
+After starting the bot with `docker compose up -d`:
+
+1. Message your bot with `/new` - should create a session
+2. Send a regular message - should get OpenCode response
+3. Try `/models` - should show available models
+4. Try `/compact` - should compact conversation
+
+**All commands use `/` prefix:**
+- `/new [title]` - Create new session
+- `/switch <session_id>` - Switch to session
+- `/sessions` - List your sessions
+- `/models` - Show available models
+- `/model <provider/model>` - Set model
+- `/compact` - Compact conversation
+- `/undo`, `/redo` - Undo/redo changes
+- `/share` - Share session
+- `/help` - Show help
 
 ## Documentation
 

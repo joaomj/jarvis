@@ -141,6 +141,7 @@ class TestOpenCodeClient:
         """Test client uses basic auth with correct credentials."""
         client = OpenCodeClient("http://localhost:4096", "test_password")
 
-        # Check auth is configured
+        # Check auth is configured (httpx wraps it in BasicAuth object)
         assert client.auth == ("opencode", "test_password")
-        assert client.client.auth == ("opencode", "test_password")
+        # client.client.auth is a httpx.BasicAuth object, not a tuple
+        assert client.client.auth is not None

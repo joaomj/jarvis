@@ -7,27 +7,45 @@
 
 **Phase**: 1 (MVP) - Telegram-OpenCode Bridge  
 **Status**: Implementation complete, ready for deployment  
-**Last Updated**: 2026-02-01
+**Last Updated**: 2026-02-08
+
+## Migration Complete
+
+The codebase has been migrated from a monolithic structure to a modular architecture:
+- **Command Router**: Central routing for all commands (`command_router.py`)
+- **Handlers Package**: Modular command handlers (`handlers/commands.py`)
+- **Structured Logging**: JSON logging with correlation IDs (`logging_config.py`)
+- **Models & Exceptions**: Type-safe data structures and error handling
+- **49 Tests**: Comprehensive test coverage including integration tests
 
 ## Architecture Overview
 
-Jarvis is a **thin passthrough bridge** between Telegram and OpenCode Server.
+Jarvis is a **thin passthrough bridge** between Telegram and OpenCode Server with a **modular command routing system**.
 
 ```
 Telegram <-> Jarvis Bot (Python) <-> OpenCode Server
                  |                        |
-            - Allowlist              - LLM calls
-            - Formatting             - File ops
-            - Routing                - Git ops
-                                     - Sessions
+            - Command Router         - LLM calls
+            - Handler Package        - File ops
+            - Allowlist              - Git ops
+            - Formatting             - Sessions
 ```
 
-### Key Decision: No Gateway Abstraction
+### Command Routing Architecture
 
-We explicitly chose NOT to build a Gateway/Router pattern. Rationale:
-- OpenCode already handles command parsing, LLM routing, tool execution
-- Adding abstraction would duplicate logic and add maintenance burden
-- Simpler = fewer bugs, faster development
+The bot uses a centralized command router that categorizes commands:
+
+1. **Blocked Commands** (`exit`, `quit`, `editor`, `themes`) - Not available in Telegram
+2. **Bridge-Native** (`switch`, `agent`, `model`) - Handled by Jarvis
+3. **Intercept Commands** (`models`, `new`, `sessions`) - Bridge processes before OpenCode
+4. **Pass-Through** (`compact`, `undo`, `share`, etc.) - Forwarded directly to OpenCode
+
+### Key Decision: Modular Handler Pattern
+
+We migrated from a monolithic bot.py to a modular architecture:
+- **Benefits**: Better testability, clearer separation of concerns, easier maintenance
+- **Tradeoff**: Slightly more files, but each under 300 lines (pre-commit enforced)
+- **Migration Date**: 2026-02-08
 
 ### Data Flow
 
@@ -117,32 +135,92 @@ This allows:
 
 ```
 jarvis/
-├── src/jarvis/              # Application source code
+├── src/jarvis/                   # Application source code
 │   ├── __init__.py
-│   ├── __main__.py          # Entry point (webhook server)
-│   ├── bot.py               # Telegram bot implementation
-│   ├── config.py            # Configuration (pydantic-settings)
-│   ├── formatter.py         # Response formatting (markdown, chunking)
-│   ├── logging.py           # Structured logging (structlog)
-│   └── opencode_client.py   # HTTP client for OpenCode Server
-├── tests/                   # Test suite
-│   ├── test_bot.py
-│   ├── test_config.py
-│   ├── test_formatter.py
-│   ├── test_logging.py
-│   └── test_opencode_client.py
-├── docs/                    # Documentation
-│   ├── prd/                 # Product Requirements Document (20 sections)
-│   ├── tech-context.md      # This file - architecture decisions
-│   ├── docker-best-practices.md  # Docker security & optimization
-│   └── what-i-want.md       # Original vision document
-├── Dockerfile               # Multi-stage, non-root, minimal
-├── docker-compose.yml       # Production orchestration
-├── pyproject.toml           # PDM, ruff, pytest configuration
-├── .env.example            # Environment template
-├── .pre-commit-config.yaml  # gitleaks, ruff, mypy hooks
-└── README.md               # Quick start guide
+│   ├── __main__.py               # Entry point (webhook server)
+│   ├── bot.py                    # Telegram bot implementation (webhook mode)
+│   ├── command_router.py         # Central command routing logic
+│   ├── config.py                 # Configuration (pydantic-settings)
+│   ├── exceptions.py             # Custom exception classes
+│   ├── formatter.py              # Response formatting (markdown, chunking)
+│   ├── logging_config.py           # Structured logging (structlog)
+│   ├── models.py                 # Pydantic data models
+│   ├── opencode_client.py        # HTTP client for OpenCode Server
+│   ├── utils.py                  # Utility functions
+│   └── handlers/                 # Modular command handlers
+│       ├── __init__.py
+│       └── commands.py           # Bridge-native command implementations
+├── tests/                        # Test suite (49 tests)
+│   ├── test_bot.py              # Bot functionality tests
+│   ├── test_config.py           # Configuration tests
+│   ├── test_formatter.py        # Response formatting tests
+│   ├── test_logging.py          # Structured logging tests
+│   ├── test_migration.py        # Migration verification tests
+│   └── test_opencode_client.py  # OpenCode API client tests
+├── docs/                         # Documentation
+│   ├── prd/                     # Product Requirements Document (20 sections)
+│   ├── tech-context.md          # This file - architecture decisions
+│   ├── docker-best-practices.md # Docker security & optimization
+│   └── what-i-want.md           # Original vision document
+├── Dockerfile                    # Multi-stage, non-root, minimal
+├── docker-compose.yml           # Production orchestration
+├── pyproject.toml               # PDM, ruff, pytest configuration
+├── .env.example                 # Environment template
+├── .pre-commit-config.yaml      # gitleaks, ruff, mypy hooks
+└── README.md                    # Quick start guide
 ```
+
+### Migration Changes
+
+**Files Added** (from opencode-mobile migration):
+- `command_router.py` - Central command routing
+- `handlers/commands.py` - Bridge-native command implementations
+- `logging_config.py` - Structured JSON logging
+- `models.py` - Type-safe data models
+- `exceptions.py` - Custom error classes
+- `utils.py` - Utility functions
+- `tests/test_migration.py` - Migration verification tests
+
+**Files Modified**:
+- `bot.py` - Adapted to use new command router
+- `tests/` - All tests updated for new architecture
+
+## Testing Strategy
+
+### Test Organization
+
+| Test File | Purpose | Count |
+|-----------|---------|-------|
+| `test_bot.py` | Bot authorization, sessions, message handling | 10 |
+| `test_config.py` | Settings validation, environment loading | 6 |
+| `test_formatter.py` | Response formatting, markdown, chunking | 12 |
+| `test_logging.py` | Structured logging, JSON output | 5 |
+| `test_migration.py` | Migration verification, command routing | 4 |
+| `test_opencode_client.py` | OpenCode API client, health checks | 12 |
+
+### Running Tests
+
+```bash
+# All tests
+pdm run pytest
+
+# Specific test file
+pdm run pytest tests/test_migration.py -v
+
+# With coverage
+pdm run pytest --cov=src/jarvis --cov-report=term-missing
+
+# Integration test (requires OpenCode server)
+pdm run pytest tests/test_opencode_client.py -v
+```
+
+### Pre-Commit Hooks
+
+All commits are checked for:
+- Security leaks (gitleaks)
+- Code formatting (ruff)
+- Type checking (mypy)
+- File length (< 300 lines)
 
 ## Related Documents
 
@@ -153,6 +231,6 @@ jarvis/
 
 ## Lessons Learned
 
-(Update as we learn)
-
-- TBD
+- **2026-02-08**: Migration to modular architecture improved testability significantly
+- **2026-02-08**: Command router pattern simplifies adding new commands
+- **2026-02-08**: Structured logging with correlation IDs essential for debugging

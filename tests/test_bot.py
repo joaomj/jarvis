@@ -1,188 +1,224 @@
-"""Tests for Telegram bot module."""
+"""Tests for Telegram bot polling mode."""
+
+import asyncio
+from pathlib import Path
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from telegram import Message, Update, User
 
 from jarvis.bot import JarvisBot
 from jarvis.config import Settings
+from jarvis.database import Database
 
 
-class MockMessage:
-    """Mock Telegram message for testing."""
-
-    def __init__(self, text: str = ""):
-        self.text = text
-        self.replies = []
-
-    async def reply_text(self, text: str, **kwargs) -> None:
-        """Mock reply method."""
-        self.replies.append(text)
-
-
-class MockUser:
-    """Mock Telegram user for testing."""
-
-    def __init__(self, user_id: int):
-        self.id = user_id
-
-
-class MockUpdate:
-    """Mock Telegram update for testing."""
-
-    def __init__(self, user_id: int, text: str = ""):
-        self.effective_user = MockUser(user_id)
-        self.effective_message = MockMessage(text)
-
-
-class MockContext:
-    """Mock Telegram context for testing."""
-
-    pass
-
-
-class TestJarvisBot:
-    """Test suite for JarvisBot."""
+class TestJarvisBotPolling:
+    """Test suite for polling-based JarvisBot."""
 
     @pytest.fixture
-    def settings(self):
-        """Create test settings."""
+    def settings(self, tmp_path):
+        """Create test settings with temp database."""
+        db_path = tmp_path / "test.db"
         return Settings(
             telegram_bot_id="test_token",
             telegram_user_id=123456789,
-            telegram_webhook_url="https://test.webhook",
-            telegram_webhook_port=8080,
+            telegram_polling_interval=0.5,  # Fast for tests (min 0.5s)
+            telegram_polling_timeout=10,
             opencode_url="http://localhost:4096",
             opencode_server_password="test_password",
+            database_path=str(db_path),
+            enable_message_audit=True,
         )
 
     @pytest.fixture
+    def mock_opencode(self):
+        """Create mock OpenCode client."""
+        mock = MagicMock()
+        mock.health_check = AsyncMock(return_value=True)
+        mock.create_session = AsyncMock(return_value="test-session-id")
+        mock.send_message = AsyncMock(return_value=[{"type": "text", "text": "Response"}])
+        mock.send_command = AsyncMock(return_value=[{"type": "text", "text": "Command response"}])
+        mock.close = AsyncMock()
+        return mock
+
+    @pytest.fixture
     def bot(self, settings):
-        """Create test bot."""
+        """Create test bot instance."""
         return JarvisBot(settings)
 
-    def test_bot_initialization(self, bot):
-        """Test bot initializes with correct settings."""
-        assert bot.allowed_user_id == 123456789
+    def test_bot_initialization(self, settings):
+        """Test bot initializes with polling settings."""
+        bot = JarvisBot(settings)
+        assert bot.settings.telegram_user_id == 123456789
         assert bot.sessions == {}
+        assert bot.polling is None
 
-    def test_is_authorized_allows_configured_user(self, bot):
-        """Test authorized user is recognized."""
+    @pytest.mark.asyncio
+    async def test_initialize_creates_database(self, settings):
+        """Test initialization creates SQLite database."""
+        with patch("jarvis.bot.OpenCodeClient") as mock_client:
+            mock_instance = MagicMock()
+            mock_instance.health_check = AsyncMock(return_value=True)
+            mock_client.return_value = mock_instance
+
+            bot = JarvisBot(settings)
+            
+            with patch.object(bot, "_load_sessions", AsyncMock()):
+                await bot.initialize()
+                
+                assert Path(settings.database_path).exists()
+
+    @pytest.mark.asyncio
+    async def test_is_authorized_checks_database(self, settings):
+        """Test authorization uses SQLite."""
+        bot = JarvisBot(settings)
+        
+        # User not in DB yet
+        assert bot._is_authorized(123456789) is False
+        
+        # Add user
+        bot.db.add_user(123456789)
+        
+        # Now authorized
         assert bot._is_authorized(123456789) is True
+        assert bot._is_authorized(999999) is False
 
-    def test_is_authorized_rejects_other_users(self, bot):
-        """Test unauthorized users are rejected."""
-        assert bot._is_authorized(999999999) is False
-        assert bot._is_authorized(0) is False
-
-    def test_is_authorized_rejects_negative_user_id(self, bot):
-        """Test negative user IDs are rejected."""
-        assert bot._is_authorized(-1) is False
+    @pytest.mark.asyncio
+    async def test_message_audit_logging(self, settings):
+        """Test messages are logged to database."""
+        bot = JarvisBot(settings)
+        bot.db.add_user(123456789)
+        
+        # Log a message
+        bot.db.log_message(123456789, "in", "Hello test message")
+        
+        # Verify count
+        count = bot.db.get_user_message_count(123456789)
+        assert count == 1
 
     @pytest.mark.asyncio
     async def test_save_and_load_sessions(self, bot, tmp_path, monkeypatch):
         """Test session persistence works."""
-        # Mock storage path
         storage_path = tmp_path / "sessions.json"
         monkeypatch.setattr(
             bot.settings, "session_storage_path", str(storage_path)
         )
 
-        # Set some sessions
         bot.sessions = {123456789: "ses-abc", 987654321: "ses-def"}
-
-        # Save
         await bot._save_sessions()
 
-        # Clear
         bot.sessions = {}
-
-        # Load
         await bot._load_sessions()
 
         assert bot.sessions == {123456789: "ses-abc", 987654321: "ses-def"}
 
     @pytest.mark.asyncio
-    async def test_load_sessions_handles_missing_file(self, bot):
-        """Test loading with no existing file initializes empty."""
-        await bot._load_sessions()
-        assert bot.sessions == {}
-
-    @pytest.mark.asyncio
-    async def test_get_or_create_session_creates_new(self, bot, monkeypatch):
-        """Test session creation for new user."""
-        # Mock opencode client
-        mock_opencode = type(
-            "MockOpenCode",
-            (),
-            {
-                "create_session": lambda *args, **kwargs: asyncio.coroutine(
-                    lambda: "new-session-id"
-                )()
-            },
-        )()
+    async def test_handle_update_rejects_unauthorized(self, settings, mock_opencode):
+        """Test unauthorized users are rejected."""
+        bot = JarvisBot(settings)
         bot.opencode = mock_opencode
+        
+        # Create mock update
+        mock_update = MagicMock()
+        mock_update.effective_user.id = 999999  # Not authorized
+        mock_update.effective_message.text = "Hello"
+        
+        await bot._handle_update(mock_update)
+        
+        # Should not process - no opencode calls
+        mock_opencode.send_message.assert_not_called()
 
-        import asyncio
 
-        mock_opencode.create_session = lambda title: asyncio.Future()
-        mock_opencode.create_session.return_value = "new-session-id"
+class TestPollingEngine:
+    """Tests for polling engine."""
 
-        session_id = await bot._get_or_create_session(123456789)
-
-        assert session_id == "new-session-id"
-        assert bot.sessions[123456789] == "new-session-id"
-
-    def test_format_response_chunks_long_messages(self, bot):
-        """Test long responses are chunked."""
-        parts = [{"type": "text", "text": "A" * 5000}]
-
-        # Mock the formatter's behavior
-        chunks = bot.formatter.format_response(parts, escape_markdown=False)
-
-        assert len(chunks) > 1
-
-    @pytest.mark.asyncio
-    async def test_handle_message_rejects_unauthorized(self, bot):
-        """Test unauthorized users are silently ignored."""
-        update = MockUpdate(user_id=999999999, text="Hello")
-        context = MockContext()
-
-        # Should not raise
-        await bot._handle_message(update, context)
-
-        # No reply should be sent
-        assert len(update.effective_message.replies) == 0
+    @pytest.fixture
+    def mock_app(self):
+        """Create mock Telegram application."""
+        mock = MagicMock()
+        mock.bot.get_updates = AsyncMock(return_value=[])
+        return mock
 
     @pytest.mark.asyncio
-    async def test_handle_message_accepts_authorized(self, bot, monkeypatch):
-        """Test authorized users get responses."""
-        update = MockUpdate(user_id=123456789, text="Hello")
-        context = MockContext()
+    async def test_polling_loop_fetches_updates(self, mock_app):
+        """Test polling engine fetches updates."""
+        from jarvis.polling_engine import PollingEngine
+        
+        engine = PollingEngine(mock_app, interval=0.01, timeout=5)
+        
+        # Mock to stop after one iteration
+        call_count = 0
+        
+        async def stop_after_one(*args, **kwargs):
+            nonlocal call_count
+            call_count += 1
+            if call_count >= 1:
+                engine.stop()
+            return []
+        
+        mock_app.bot.get_updates = stop_after_one
+        
+        handler = AsyncMock()
+        await engine.start(handler)
+        
+        # Verify get_updates was called
+        assert call_count >= 1
 
-        # Mock session
-        bot.sessions[123456789] = "test-session"
+    @pytest.mark.asyncio
+    async def test_polling_backoff_on_error(self, mock_app):
+        """Test exponential backoff on errors."""
+        from jarvis.polling_engine import PollingEngine
+        
+        engine = PollingEngine(mock_app, interval=0.01, timeout=5)
+        
+        # Make get_updates fail
+        mock_app.bot.get_updates = AsyncMock(side_effect=Exception("Network error"))
+        
+        # Run briefly then stop
+        async def run_with_timeout():
+            handler = AsyncMock()
+            try:
+                await asyncio.wait_for(engine.start(handler), timeout=0.1)
+            except asyncio.TimeoutError:
+                engine.stop()
+        
+        await run_with_timeout()
+        
+        # Verify backoff counter increased
+        assert engine._backoff > 1
 
-        # Mock opencode
-        import asyncio
 
-        mock_opencode = type(
-            "MockOpenCode",
-            (),
-            {
-                "send_message": lambda *args, **kwargs: asyncio.coroutine(
-                    lambda: [{"type": "text", "text": "Response"}]
-                )()
-            },
-        )()
-        bot.opencode = mock_opencode
+class TestDatabase:
+    """Tests for database layer."""
 
-        # Mock send_message
-        mock_opencode.send_message = lambda session, text: asyncio.Future()
-        mock_opencode.send_message.return_value = [
-            {"type": "text", "text": "Response"}
-        ]
+    @pytest.fixture
+    def db(self, tmp_path):
+        """Create test database."""
+        db_path = tmp_path / "test.db"
+        return Database(str(db_path))
 
-        await bot._handle_message(update, context)
+    def test_database_creation(self, db, tmp_path):
+        """Test database file is created."""
+        assert Path(db.db_path).exists()
 
-        # Reply should be sent
-        assert len(update.effective_message.replies) > 0
+    def test_user_management(self, db):
+        """Test adding and checking users."""
+        # New user not allowed
+        assert db.is_user_allowed(123) is False
+        
+        # Add user
+        db.add_user(123)
+        
+        # Now allowed
+        assert db.is_user_allowed(123) is True
+
+    def test_message_logging(self, db):
+        """Test message audit trail."""
+        db.add_user(123)
+        
+        # Log messages
+        db.log_message(123, "in", "Hello")
+        db.log_message(123, "out", "Hi there")
+        
+        # Verify count
+        assert db.get_user_message_count(123) == 2

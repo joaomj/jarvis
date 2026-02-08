@@ -9,7 +9,7 @@ API Reference: https://opencode.ai/docs/server
 from typing import Any
 
 import httpx
-from jarvis.logging import get_logger
+from jarvis.logging_config import get_logger
 
 logger = get_logger(__name__)
 

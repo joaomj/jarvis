@@ -37,6 +37,9 @@ env/
 # Logs
 *.log
 
+# Jarvis local state
+/.jarvis/
+
 # Temporary files
 /tmp/
 *.tmp
