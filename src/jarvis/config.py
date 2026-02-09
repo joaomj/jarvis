@@ -8,6 +8,10 @@ from pathlib import Path
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+MIN_POLLING_INTERVAL = 0.5
+MIN_POLLING_TIMEOUT = 10
+MAX_POLLING_TIMEOUT = 120
+
 
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
@@ -52,6 +56,10 @@ class Settings(BaseSettings):
         default=True,
         description="Enable message audit logging",
     )
+    favorite_models_path: str = Field(
+        default=".jarvis/favorite_models.json",
+        description="Path to favorite models JSON file",
+    )
 
     # Application settings
     log_level: str = Field(
@@ -89,16 +97,20 @@ class Settings(BaseSettings):
     @classmethod
     def validate_polling_interval(cls, v: float) -> float:
         """Validate polling interval is reasonable."""
-        if v < 0.5:
-            raise ValueError(f"polling_interval must be >= 0.5s, got {v}")
+        if v < MIN_POLLING_INTERVAL:
+            raise ValueError(
+                f"polling_interval must be >= {MIN_POLLING_INTERVAL}s, got {v}"
+            )
         return v
 
     @field_validator("telegram_polling_timeout")
     @classmethod
     def validate_polling_timeout(cls, v: int) -> int:
         """Validate polling timeout is reasonable."""
-        if v < 10 or v > 120:
-            raise ValueError(f"polling_timeout must be 10-120s, got {v}")
+        if v < MIN_POLLING_TIMEOUT or v > MAX_POLLING_TIMEOUT:
+            raise ValueError(
+                f"polling_timeout must be {MIN_POLLING_TIMEOUT}-{MAX_POLLING_TIMEOUT}s, got {v}"
+            )
         return v
 
     @field_validator("session_storage_path")
@@ -111,6 +123,12 @@ class Settings(BaseSettings):
     @classmethod
     def expand_database_path(cls, v: str) -> str:
         """Expand user home in database path."""
+        return str(Path(v).expanduser())
+
+    @field_validator("favorite_models_path")
+    @classmethod
+    def expand_favorite_models_path(cls, v: str) -> str:
+        """Expand user home in favorite models path."""
         return str(Path(v).expanduser())
 
 

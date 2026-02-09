@@ -4,9 +4,7 @@ Minimal database layer for single-user bot.
 """
 
 import sqlite3
-from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from jarvis.logging_config import get_logger
 
@@ -42,6 +40,12 @@ class Database:
                     direction TEXT,  -- 'in' or 'out'
                     content TEXT,
                     timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE TABLE IF NOT EXISTS user_states (
+                    telegram_id INTEGER PRIMARY KEY,
+                    state_type TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
             """)
 
@@ -110,3 +114,35 @@ class Database:
                 (telegram_id,)
             )
             return cursor.fetchone()[0]
+
+    def set_user_state(self, telegram_id: int, state_type: str) -> None:
+        """Set active state for a user."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """INSERT INTO user_states (telegram_id, state_type)
+                   VALUES (?, ?)
+                   ON CONFLICT(telegram_id) DO UPDATE SET
+                     state_type = excluded.state_type,
+                     created_at = CURRENT_TIMESTAMP""",
+                (telegram_id, state_type),
+            )
+
+    def get_user_state(self, telegram_id: int) -> str | None:
+        """Get active state for a user."""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                "SELECT state_type FROM user_states WHERE telegram_id = ?",
+                (telegram_id,),
+            )
+            row = cursor.fetchone()
+            if row is None:
+                return None
+            return str(row[0])
+
+    def clear_user_state(self, telegram_id: int) -> None:
+        """Clear active state for a user."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                "DELETE FROM user_states WHERE telegram_id = ?",
+                (telegram_id,),
+            )
