@@ -37,7 +37,7 @@ async def handle_intercept_command(
     handler = handlers.get(cmd)
     if handler:
         return await handler(args, user_id, bot)
-    
+
     return f"Unknown command: /{cmd}"
 
 
@@ -64,12 +64,12 @@ async def handle_bridge_command(
     handler = handlers.get(cmd)
     if handler:
         return await handler(args, user_id, bot)
-    
+
     return f"Unknown bridge command: /{cmd}"
 
 
 async def _handle_models(args: str, user_id: int, bot: "JarvisBot") -> str:
-    """Show available models from OpenCode.
+    """Show available models and current model.
 
     Args:
         args: Command arguments (unused)
@@ -79,8 +79,16 @@ async def _handle_models(args: str, user_id: int, bot: "JarvisBot") -> str:
     Returns:
         Response message with available models
     """
-    # For now, show a static list of common models
-    # In the future, this could fetch from OpenCode's /config endpoint
+    current = bot._get_model_for_user(user_id)
+    global_model = bot._current_model
+
+    lines = ["📋 <b>Available Models</b>\n"]
+
+    if current:
+        lines.append(f"Current: <code>{html.escape(current)}</code>")
+    elif global_model:
+        lines.append(f"Global: <code>{html.escape(global_model)}</code>")
+
     models = [
         "anthropic/claude-sonnet-4-20250514",
         "anthropic/claude-opus-4-20250514",
@@ -88,12 +96,13 @@ async def _handle_models(args: str, user_id: int, bot: "JarvisBot") -> str:
         "google/gemini-2.5-pro",
     ]
 
-    lines = ["📋 <b>Available Models</b>\n"]
+    lines.append("\n<b>Favorites</b>:")
     for i, model in enumerate(models, 1):
         lines.append(f"{i}. <code>{html.escape(model)}</code>")
-    
-    lines.append("\nTo set a model: /model &lt;provider/model&gt;")
-    
+
+    lines.append("\nSet: <code>!model provider/model</code>")
+    lines.append("Fav: <code>!models</code> then reply with number")
+
     return "\n".join(lines)
 
 
@@ -116,7 +125,6 @@ async def _handle_new_session(args: str, user_id: int, bot: "JarvisBot") -> str:
 
         session_id = await bot.opencode.create_session(title=title)
         bot.sessions[user_id] = session_id
-        await bot._save_sessions()
 
         logger.info(
             "Created new session",
@@ -142,14 +150,14 @@ async def _handle_list_sessions(args: str, user_id: int, bot: "JarvisBot") -> st
         Response message with session info
     """
     current_session = bot.sessions.get(user_id, "None")
-    
+
     lines = [
         "📋 <b>Your Sessions</b>\n",
         f"Current: <code>{current_session[:16]}...</code>" if current_session != "None" else "No active session",
         "\nTo create new: /new",
         "To switch: /switch &lt;session_id&gt;",
     ]
-    
+
     return "\n".join(lines)
 
 
@@ -169,7 +177,6 @@ async def _handle_switch(args: str, user_id: int, bot: "JarvisBot") -> str:
 
     session_id = args.strip()
     bot.sessions[user_id] = session_id
-    await bot._save_sessions()
 
     logger.info("Switched session", session_id=session_id, user_id=user_id)
     return f"✅ Switched to session: <code>{session_id}</code>"
@@ -207,10 +214,10 @@ async def _handle_agent(args: str, user_id: int, bot: "JarvisBot") -> str:
 
 
 async def _handle_model(args: str, user_id: int, bot: "JarvisBot") -> str:
-    """Set model for session.
+    """Set or show model for session.
 
     Args:
-        args: Model ID or empty to show list
+        args: Model ID or empty to show current
         user_id: Telegram user ID
         bot: JarvisBot instance
 
@@ -218,23 +225,33 @@ async def _handle_model(args: str, user_id: int, bot: "JarvisBot") -> str:
         Response message
     """
     if not args:
-        # Show models list
-        return await _handle_models("", user_id, bot)
+        current = bot._get_model_for_user(user_id)
+        is_custom = user_id in bot._model_preferences
+
+        if current:
+            status = "custom" if is_custom else "global"
+            return (
+                f"🤖 <b>Current Model</b>\n\n"
+                f"<code>{html.escape(current)}</code>\n\n"
+                f"Source: {status}\n"
+                "Use <code>!model &lt;provider/model&gt;</code> to change."
+            )
+        return (
+            "🤖 <b>Model</b>\n\n"
+            "No model set.\n"
+            "Use <code>!model &lt;provider/model&gt;</code> to set one."
+        )
 
     model_id = args.strip()
 
-    # Validate format
     if "/" not in model_id:
         return (
             "⚠️ Model must be in format: <code>provider/model</code>\n"
-            "Example: <code>anthropic/claude-sonnet-4</code>\n\n"
-            "Use /models to see available models."
+            "Example: <code>anthropic/claude-sonnet-4-20250514</code>\n\n"
+            "Use !models to see available models."
         )
 
-    # Store model preference (in memory for now)
-    if not hasattr(bot, '_model_preferences'):
-        bot._model_preferences = {}
     bot._model_preferences[user_id] = model_id
 
     logger.info("Set model preference", model=model_id, user_id=user_id)
-    return f"✅ Model set to: <code>{html.escape(model_id)}</code>\n\nThis will be used for new messages."
+    return f"✅ Model set to: <code>{html.escape(model_id)}</code>\n\nThis will be used for your messages."
