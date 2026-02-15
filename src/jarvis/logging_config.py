@@ -78,6 +78,10 @@ def configure_logging(log_level: str = "INFO") -> None:
         level=level,
     )
 
+    # Suppress httpx INFO logs to avoid exposing bot tokens in URLs
+    # httpx logs "HTTP Request: POST https://api.telegram.org/bot<TOKEN>/..."
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+
 
 def get_logger(name: str) -> structlog.stdlib.BoundLogger:
     """Get structured logger with service context.
