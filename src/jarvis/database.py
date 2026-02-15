@@ -47,6 +47,18 @@ class Database:
                     state_type TEXT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 );
+
+                CREATE TABLE IF NOT EXISTS responses (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    session_id TEXT NOT NULL,
+                    telegram_id INTEGER NOT NULL,
+                    model TEXT,
+                    content TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_responses_telegram_id ON responses(telegram_id);
+                CREATE INDEX IF NOT EXISTS idx_responses_created_at ON responses(created_at);
             """)
 
     def is_user_allowed(self, telegram_id: int) -> bool:
@@ -146,3 +158,45 @@ class Database:
                 "DELETE FROM user_states WHERE telegram_id = ?",
                 (telegram_id,),
             )
+
+    def log_response(
+        self,
+        session_id: str,
+        telegram_id: int,
+        model: str | None,
+        content: str,
+    ) -> None:
+        """Log OpenCode response to database.
+
+        Args:
+            session_id: OpenCode session ID.
+            telegram_id: Telegram user ID.
+            model: Model used for this response.
+            content: Full response content.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute(
+                """INSERT INTO responses (session_id, telegram_id, model, content)
+                   VALUES (?, ?, ?, ?)""",
+                (session_id, telegram_id, model, content),
+            )
+
+    def cleanup_old_responses(self, days: int = 30) -> int:
+        """Delete responses older than specified days.
+
+        Args:
+            days: Number of days to keep (default 30).
+
+        Returns:
+            Number of rows deleted.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.execute(
+                """DELETE FROM responses
+                   WHERE created_at < datetime('now', '-' || ? || ' days')""",
+                (days,),
+            )
+            deleted = cursor.rowcount
+            if deleted > 0:
+                logger.info("responses_cleaned", deleted=deleted, days=days)
+            return deleted

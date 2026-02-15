@@ -20,6 +20,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
+        extra="ignore",
     )
 
     # Telegram settings
@@ -30,7 +31,7 @@ class Settings(BaseSettings):
         description="Authorized Telegram user ID"
     )
     telegram_polling_interval: float = Field(
-        default=2.0,
+        default=1.0,
         description="Seconds between polling requests",
     )
     telegram_polling_timeout: int = Field(
@@ -70,10 +71,6 @@ class Settings(BaseSettings):
         default="production",
         description="Environment name (development, production)",
     )
-    session_storage_path: str = Field(
-        default=".jarvis/sessions.json",
-        description="Path to store user session mappings",
-    )
 
     @field_validator("log_level")
     @classmethod
@@ -112,12 +109,6 @@ class Settings(BaseSettings):
                 f"polling_timeout must be {MIN_POLLING_TIMEOUT}-{MAX_POLLING_TIMEOUT}s, got {v}"
             )
         return v
-
-    @field_validator("session_storage_path")
-    @classmethod
-    def expand_session_storage_path(cls, v: str) -> str:
-        """Expand user home in session storage path."""
-        return str(Path(v).expanduser())
 
     @field_validator("database_path")
     @classmethod
