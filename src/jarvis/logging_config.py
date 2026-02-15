@@ -6,6 +6,7 @@ distributed operations across Telegram and OpenCode APIs.
 
 import logging
 import uuid
+from contextlib import suppress
 from contextvars import ContextVar
 
 import orjson
@@ -43,10 +44,8 @@ def set_trace_id(trace_id: str | None = None) -> str:
 
 def clear_trace_id() -> None:
     """Clear trace ID from context."""
-    try:
+    with suppress(LookupError):
         trace_id_var.set("")
-    except LookupError:
-        pass
 
 
 def configure_logging(log_level: str = "INFO") -> None:

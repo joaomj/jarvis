@@ -33,7 +33,7 @@ async def main() -> None:
         # Keep running until interrupted
         stop_event = asyncio.Event()
 
-        def signal_handler(sig: int, frame: object) -> None:
+        def signal_handler(sig: int, _: object) -> None:
             """Handle shutdown signals."""
             logger.info("shutdown_signal_received", signal=sig)
             bot.stop()

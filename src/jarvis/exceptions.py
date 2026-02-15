@@ -55,3 +55,15 @@ class ValidationError(BridgeError):
         self.field = field
         self.message = message
         super().__init__(f"{field}: {message}")
+
+
+class DatabaseError(BridgeError):
+    """Database operation failed."""
+
+    def __init__(self, message: str, operation: str | None = None, details: str | None = None):
+        self.operation = operation
+        self.details = details
+        error_msg = message
+        if operation:
+            error_msg = f"{operation}: {message}"
+        super().__init__(error_msg)

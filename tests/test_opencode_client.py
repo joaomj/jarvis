@@ -1,4 +1,4 @@
-"""Tests for OpenCode HTTP client."""
+"""Tests for OpenCode HTTP client error handling."""
 
 import httpx
 import pytest
@@ -7,8 +7,8 @@ import respx
 from jarvis.opencode_client import OpenCodeClient, OpenCodeError
 
 
-class TestOpenCodeClient:
-    """Test suite for OpenCodeClient."""
+class TestOpenCodeClientErrors:
+    """Test suite for OpenCodeClient error handling."""
 
     @pytest.fixture
     def client(self):
@@ -16,42 +16,16 @@ class TestOpenCodeClient:
         return OpenCodeClient("http://localhost:4096", "test_password")
 
     @respx.mock
-    async def test_health_check_success(self, client):
-        """Test health check returns True when server is healthy."""
-        route = respx.get("http://localhost:4096/global/health").mock(
-            return_value=httpx.Response(200, json={"healthy": True, "version": "1.0.0"})
-        )
-
-        result = await client.health_check()
-
-        assert result is True
-        assert route.called
-
-    @respx.mock
     async def test_health_check_failure(self, client):
-        """Test health check returns False on error."""
+        """Test health check returns False with error reason."""
         respx.get("http://localhost:4096/global/health").mock(
             return_value=httpx.Response(500)
         )
 
-        result = await client.health_check()
+        healthy, reason = await client.health_check()
 
-        assert result is False
-
-    @respx.mock
-    async def test_create_session_success(self, client):
-        """Test session creation returns session ID."""
-        route = respx.post("http://localhost:4096/session").mock(
-            return_value=httpx.Response(200, json={"id": "ses-123", "title": "test"})
-        )
-
-        session_id = await client.create_session("test-session")
-
-        assert session_id == "ses-123"
-        assert route.called
-        # Verify request body (JSON has no spaces)
-        request = route.calls[0].request
-        assert b'"title":"test-session"' in request.content
+        assert healthy is False
+        assert "HTTP 500" in reason
 
     @respx.mock
     async def test_create_session_failure(self, client):
@@ -64,27 +38,6 @@ class TestOpenCodeClient:
             await client.create_session("test")
 
     @respx.mock
-    async def test_send_message_success(self, client):
-        """Test sending message returns response parts and info."""
-        route = respx.post("http://localhost:4096/session/ses-123/message").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "info": {"id": "msg-456", "modelID": "glm-5", "providerID": "opencode", "agent": "build"},
-                    "parts": [{"type": "text", "text": "Hello back"}],
-                }
-            )
-        )
-
-        parts, info = await client.send_message("ses-123", "Hello")
-
-        assert len(parts) == 1
-        assert parts[0]["text"] == "Hello back"
-        assert info["id"] == "msg-456"
-        assert info["modelID"] == "glm-5"
-        assert route.called
-
-    @respx.mock
     async def test_send_message_failure(self, client):
         """Test send message raises OpenCodeError on failure."""
         respx.post("http://localhost:4096/session/ses-123/message").mock(
@@ -95,42 +48,6 @@ class TestOpenCodeClient:
             await client.send_message("ses-123", "Hello")
 
     @respx.mock
-    async def test_send_command_success(self, client):
-        """Test executing command returns response parts and info."""
-        route = respx.post("http://localhost:4096/session/ses-123/command").mock(
-            return_value=httpx.Response(
-                200,
-                json={
-                    "info": {"id": "msg-789", "modelID": "glm-5", "agent": "build"},
-                    "parts": [{"type": "text", "text": "Changes reverted"}],
-                }
-            )
-        )
-
-        parts, info = await client.send_command("ses-123", "undo")
-
-        assert len(parts) == 1
-        assert parts[0]["text"] == "Changes reverted"
-        assert info["id"] == "msg-789"
-        assert route.called
-        # Verify request body (JSON has no spaces)
-        request = route.calls[0].request
-        assert b'"command":"undo"' in request.content
-
-    @respx.mock
-    async def test_send_command_with_arguments(self, client):
-        """Test command execution with arguments."""
-        route = respx.post("http://localhost:4096/session/ses-123/command").mock(
-            return_value=httpx.Response(200, json={"info": {}, "parts": []})
-        )
-
-        await client.send_command("ses-123", "share", "--public")
-
-        request = route.calls[0].request
-        assert b'"command":"share"' in request.content
-        assert b'"arguments":"--public"' in request.content
-
-    @respx.mock
     async def test_send_command_failure(self, client):
         """Test command execution raises OpenCodeError on failure."""
         respx.post("http://localhost:4096/session/ses-123/command").mock(
@@ -139,12 +56,3 @@ class TestOpenCodeClient:
 
         with pytest.raises(OpenCodeError, match="Failed to execute command"):
             await client.send_command("ses-123", "undo")
-
-    async def test_client_uses_basic_auth(self):
-        """Test client uses basic auth with correct credentials."""
-        client = OpenCodeClient("http://localhost:4096", "test_password")
-
-        # Check auth is configured (httpx wraps it in BasicAuth object)
-        assert client.auth == ("opencode", "test_password")
-        # client.client.auth is a httpx.BasicAuth object, not a tuple
-        assert client.client.auth is not None

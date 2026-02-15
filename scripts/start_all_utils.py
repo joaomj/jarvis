@@ -5,14 +5,13 @@ from __future__ import annotations
 import base64
 import json
 import logging
-import os
 import re
 import shutil
 import socket
 import subprocess
 import threading
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
@@ -83,7 +82,7 @@ def resolve_binary(name: str, fallback: Path | None = None) -> Path | None:
 def check_health(url: str, username: str, password: str) -> bool:
     request = Request(url)
     if password:
-        token = f"{username}:{password}".encode("utf-8")
+        token = f"{username}:{password}".encode()
         auth = base64.b64encode(token).decode("utf-8")
         request.add_header("Authorization", f"Basic {auth}")
     try:

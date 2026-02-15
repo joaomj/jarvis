@@ -8,6 +8,7 @@ Handles:
 """
 
 import re
+from typing import Any
 
 from jarvis.logging_config import get_logger
 
@@ -99,7 +100,7 @@ class ResponseFormatter:
     @classmethod
     def format_response(
         cls,
-        parts: list[dict],
+        parts: list[dict[str, Any]],
         escape_markdown: bool = True,
     ) -> list[str]:
         """Format OpenCode response parts for Telegram.

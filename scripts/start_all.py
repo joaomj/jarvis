@@ -10,10 +10,9 @@ import subprocess
 import sys
 import threading
 import time
+from collections.abc import Iterable
 from pathlib import Path
 from urllib.parse import urlparse, urlunparse
-
-from typing import Iterable
 
 from start_all_utils import (
     Redactor,
@@ -143,8 +142,8 @@ def main() -> int:
             return 1
 
     logger.info("OpenCode healthy - verify providers loaded at %s", current_health_url)
-    logger.info("Config locations: OPENCODE_HOME=%s, XDG_CONFIG_HOME=%s", 
-                env.get("OPENCODE_HOME", "default"), 
+    logger.info("Config locations: OPENCODE_HOME=%s, XDG_CONFIG_HOME=%s",
+                env.get("OPENCODE_HOME", "default"),
                 env.get("XDG_CONFIG_HOME", "default"))
 
     funnel_ready = threading.Event()

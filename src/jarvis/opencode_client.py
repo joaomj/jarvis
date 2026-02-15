@@ -10,17 +10,10 @@ from typing import Any
 
 import httpx
 
+from jarvis.exceptions import OpenCodeError
 from jarvis.logging_config import get_logger
 
 logger = get_logger(__name__)
-
-
-class OpenCodeError(Exception):
-    """Base exception for OpenCode API errors."""
-
-    def __init__(self, message: str, status_code: int | None = None):
-        super().__init__(message)
-        self.status_code = status_code
 
 
 def _parse_model_string(model: str) -> dict[str, str]:
@@ -84,26 +77,33 @@ class OpenCodeClient:
         await self.client.aclose()
         logger.info("opencode_client_closed")
 
-    async def health_check(self) -> bool:
+    async def health_check(self) -> tuple[bool, str]:
         """Check if OpenCode Server is healthy.
 
         Returns:
-            bool: True if healthy, False otherwise.
+            tuple: (healthy: bool, reason: str)
         """
         try:
             response = await self.client.get(f"{self.base_url}/global/health")
             response.raise_for_status()
             data = response.json()
             healthy = data.get("healthy", False)
+            version = data.get("version", "unknown")
+            reason = f"OK (v{version})" if healthy else f"Server reports unhealthy (v{version})"
             logger.info(
                 "health_check_complete",
                 healthy=healthy,
-                version=data.get("version", "unknown"),
+                version=version,
             )
-            return healthy
+            return healthy, reason
+        except httpx.HTTPStatusError as e:
+            error_msg = f"HTTP {e.response.status_code}: {e.response.text[:100]}"
+            logger.error("health_check_failed", status_code=e.response.status_code, error=str(e))
+            return False, error_msg
         except httpx.HTTPError as e:
+            error_msg = f"Connection error: {str(e)[:100]}"
             logger.error("health_check_failed", error=str(e))
-            return False
+            return False, error_msg
 
     async def create_session(self, title: str) -> str:
         """Create a new session.

@@ -1,4 +1,5 @@
-from typing import Any, Literal, Optional
+from typing import Any, Literal
+
 from pydantic import BaseModel
 
 
@@ -11,7 +12,7 @@ class UserMessage(BaseModel):
 class AssistantMessage(BaseModel):
     id: str
     role: Literal["assistant"]
-    parentID: Optional[str] = None
+    parentID: str | None = None
 
 
 class TextPart(BaseModel):
@@ -31,7 +32,7 @@ class PermissionRequest(BaseModel):
 
 class Session(BaseModel):
     id: str
-    title: Optional[str] = None
+    title: str | None = None
 
 
 class OutboundMessage(BaseModel):
@@ -40,14 +41,14 @@ class OutboundMessage(BaseModel):
     session_id: str
     text: str
     is_command: bool = False
-    command: Optional[str] = None
+    command: str | None = None
     arguments: str = ""
     agent: str = "plan"
-    model: Optional[str] = None
+    model: str | None = None
 
 
 class BridgeState(BaseModel):
     last_update_id: int = 0
-    active_session_id: Optional[str] = None
+    active_session_id: str | None = None
     active_agent: str = "plan"
-    active_model: Optional[str] = None
+    active_model: str | None = None

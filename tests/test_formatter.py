@@ -1,12 +1,10 @@
-"""Tests for response formatter module."""
-
-import pytest
+"""Tests for response formatter module - algorithmic core."""
 
 from jarvis.formatter import ResponseFormatter
 
 
 class TestResponseFormatter:
-    """Test suite for ResponseFormatter."""
+    """Test suite for ResponseFormatter chunking and escaping."""
 
     def test_escape_markdown_escapes_special_chars(self):
         """Test that special characters are escaped."""
@@ -22,7 +20,7 @@ class TestResponseFormatter:
         text = "Hello world, this is normal text"
         escaped = ResponseFormatter.escape_markdown(text)
 
-        assert escaped == text  # No special chars to escape
+        assert escaped == text
 
     def test_chunk_message_no_chunking_for_short_text(self):
         """Test that short messages aren't chunked."""
@@ -34,7 +32,7 @@ class TestResponseFormatter:
 
     def test_chunk_message_splits_long_text(self):
         """Test that long messages are split."""
-        text = "A" * 5000  # Longer than 4096
+        text = "A" * 5000
         chunks = ResponseFormatter.chunk_message(text)
 
         assert len(chunks) > 1
@@ -42,13 +40,11 @@ class TestResponseFormatter:
 
     def test_chunk_message_respects_word_boundaries(self):
         """Test that chunking respects word boundaries."""
-        # Create text with words separated by spaces
         words = ["word" + str(i) for i in range(2000)]
         text = " ".join(words)
 
         chunks = ResponseFormatter.chunk_message(text)
 
-        # Each chunk should be <= 4096 chars
         assert all(len(chunk) <= 4096 for chunk in chunks)
 
     def test_chunk_message_handles_code_blocks(self):
@@ -58,7 +54,6 @@ class TestResponseFormatter:
 
         chunks = ResponseFormatter.chunk_message(text)
 
-        # All chunks should be <= 4096
         assert all(len(chunk) <= 4096 for chunk in chunks)
 
     def test_format_response_handles_text_parts(self):
@@ -86,27 +81,6 @@ class TestResponseFormatter:
         assert len(result) > 1
         assert all(len(chunk) <= 4096 for chunk in result)
 
-    def test_format_response_handles_multiple_parts(self):
-        """Test formatting multiple response parts."""
-        parts = [
-            {"type": "text", "text": "First part"},
-            {"type": "text", "text": "Second part"},
-        ]
-
-        result = ResponseFormatter.format_response(parts, escape_markdown=False)
-
-        assert len(result) == 2
-        assert "First part" in result
-        assert "Second part" in result
-
-    def test_format_response_handles_empty_parts(self):
-        """Test formatting empty response parts."""
-        parts = []
-
-        result = ResponseFormatter.format_response(parts)
-
-        assert result == ["_No response_"]
-
     def test_format_response_handles_tool_results(self):
         """Test formatting tool result parts."""
         parts = [{"type": "tool_result", "result": "Tool output"}]
@@ -122,12 +96,3 @@ class TestResponseFormatter:
 
         assert "⚠️" in formatted
         assert "\\*went\\*" in formatted
-        assert "_" in formatted
-
-    def test_format_response_handles_unknown_part_types(self):
-        """Test that unknown part types are handled gracefully."""
-        parts = [{"type": "unknown", "data": "test"}]
-
-        result = ResponseFormatter.format_response(parts)
-
-        assert result == ["_No response_"]

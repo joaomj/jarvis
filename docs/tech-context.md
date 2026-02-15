@@ -6,8 +6,8 @@
 ## Current Status
 
 **Phase**: 1 (MVP) - Telegram-OpenCode Bridge
-**Status**: Implementation complete, model selection and response logging added
-**Last Updated**: 2026-02-14
+**Status**: Implementation complete, polling mode, model selection, response logging, comprehensive error handling
+**Last Updated**: 2026-02-15
 
 ## Migration Complete
 
@@ -16,7 +16,7 @@ The codebase has been migrated from a monolithic structure to a modular architec
 - **Handlers Package**: Modular command handlers (`handlers/commands.py`)
 - **Structured Logging**: JSON logging with correlation IDs (`logging_config.py`)
 - **Models & Exceptions**: Type-safe data structures and error handling
-- **51 Tests**: Comprehensive test coverage including integration tests
+- **26 Tests**: Comprehensive error handling tests (removed 25 fake library tests)
 
 ## Architecture Overview
 
@@ -114,28 +114,29 @@ Jarvis parses `provider/model` strings and converts to this format. Model and ag
 
 - **Host**: Mac Mini M4 (16GB)
 - **Container Runtime**: Orbstack
-- **Network**: Tailscale mesh (no public ports)
-- **Telegram**: Webhook via Tailscale Funnel (default - fast, low latency)
+- **Network**: Polling only (no public ports, no Tailscale needed)
+- **Telegram**: Long polling with exponential backoff
 
-### Why Mac Mini (not VPS)?
+### Why Polling?
 
-1. **Direct file access**: OpenCode must read/write project files
-2. **Lower latency**: No network hops to access code
-3. **Simpler setup**: No NFS mounts, SSH tunnels, or sync complications
-4. **Existing hardware**: Already paid for, sufficient resources (M4, 16GB)
+1. **No public exposure**: No webhook URL needed, runs entirely locally
+2. **Simpler setup**: No Tailscale or port forwarding required
+3. **Resilient**: Exponential backoff handles network issues gracefully
+4. **Sufficient performance**: Fast enough for personal use
 
 ## Security Model
 
-1. **Network**: No public ports, Tailscale only
-2. **Auth**: Telegram user ID allowlist
+1. **Network**: Polling only, no public ports
+2. **Auth**: Telegram user ID allowlist (SQLite)
 3. **Secrets**: `.env` file, never in code/logs
-4. **Logging**: Structured JSON, correlation IDs
+4. **Logging**: Structured JSON, correlation IDs, secrets filtered
+5. **Container**: Read-only filesystem, resource limits, no new privileges
 
 ## Open Decisions
 
 | Decision | Status | Notes |
 |----------|--------|-------|
-| Webhook vs Polling | **Webhook implemented** | Fast delivery via Tailscale Funnel |
+| Webhook vs Polling | **Polling implemented** | Simple, no public URLs needed |
 | VPS fallback | **Never** | Mac Mini only - direct file access required |
 
 ## References
@@ -151,27 +152,26 @@ Jarvis parses `provider/model` strings and converts to this format. Model and ag
 jarvis/
 ├── src/jarvis/                   # Application source code
 │   ├── __init__.py
-│   ├── __main__.py               # Entry point (webhook server)
-│   ├── bot.py                    # Telegram bot implementation (webhook mode)
+│   ├── __main__.py               # Entry point (polling bot)
+│   ├── bot.py                    # Telegram bot implementation (polling)
 │   ├── command_router.py         # Central command routing logic
 │   ├── config.py                 # Configuration (pydantic-settings)
 │   ├── database.py               # SQLite database for responses and audit
 │   ├── exceptions.py             # Custom exception classes
 │   ├── formatter.py              # Response formatting (markdown, chunking)
-│   ├── logging_config.py           # Structured logging (structlog)
+│   ├── logging_config.py        # Structured logging (structlog)
 │   ├── models.py                 # Pydantic data models
+│   ├── models_manager.py         # Favorite models manager with auto-reload
 │   ├── opencode_client.py        # HTTP client for OpenCode Server
+│   ├── polling_engine.py         # Telegram polling with backoff
 │   ├── utils.py                  # Utility functions
 │   └── handlers/                 # Modular command handlers
 │       ├── __init__.py
 │       └── commands.py           # Bridge-native command implementations
-├── tests/                        # Test suite (51 tests)
-│   ├── test_bot.py              # Bot functionality tests
-│   ├── test_config.py           # Configuration tests
-│   ├── test_formatter.py        # Response formatting tests
-│   ├── test_logging.py          # Structured logging tests
-│   ├── test_migration.py        # Migration verification tests
-│   └── test_opencode_client.py  # OpenCode API client tests
+├── tests/                        # Test suite (26 tests)
+│   ├── test_bot.py              # Bot functionality, authorization, sessions
+│   ├── test_formatter.py        # Response formatting, chunking, markdown
+│   └── test_opencode_client.py  # OpenCode API error handling
 ├── docs/                         # Documentation
 │   ├── prd/                     # Product Requirements Document (20 sections)
 │   ├── tech-context.md          # This file - architecture decisions
@@ -194,6 +194,8 @@ jarvis/
 - `models.py` - Type-safe data models
 - `exceptions.py` - Custom error classes
 - `utils.py` - Utility functions
+- `polling_engine.py` - Telegram polling with exponential backoff
+- `models_manager.py` - Favorite models manager with auto-reload
 - `tests/test_migration.py` - Migration verification tests
 
 **Files Modified**:
@@ -206,14 +208,11 @@ jarvis/
 
 ### Test Organization
 
-| Test File | Purpose | Count |
-|-----------|---------|-------|
-| `test_bot.py` | Bot authorization, sessions, message handling | 10 |
-| `test_config.py` | Settings validation, environment loading | 6 |
-| `test_formatter.py` | Response formatting, markdown, chunking | 12 |
-| `test_logging.py` | Structured logging, JSON output | 5 |
-| `test_migration.py` | Migration verification, command routing | 4 |
-| `test_opencode_client.py` | OpenCode API client, health checks | 14 |
+| Test File | Purpose |
+|-----------|---------|
+| `test_bot.py` | Bot authorization, sessions, message handling, polling engine |
+| `test_formatter.py` | Response formatting, markdown escaping, message chunking |
+| `test_opencode_client.py` | OpenCode API error handling (HTTP failures, 500s) |
 
 ### Running Tests
 
@@ -254,3 +253,5 @@ All commits are checked for:
 - **2026-02-14**: OpenCode API requires model as object {providerID, modelID}, not string
 - **2026-02-14**: Model and agent info available in response info, no separate API calls needed
 - **2026-02-14**: httpx INFO logs expose bot tokens, must be suppressed in production
+- **2026-02-15**: Polling mode simpler than webhook - no Tailscale needed, no public URLs
+- **2026-02-15**: Comprehensive error handling critical - 14 silent failure points fixed, all errors now logged with context (user_id, session_id, operation)

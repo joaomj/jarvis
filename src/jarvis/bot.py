@@ -50,11 +50,13 @@ class JarvisBot:
             log_level=self.settings.log_level,
         )
 
-        healthy = await self.opencode.health_check()
+        healthy, reason = await self.opencode.health_check()
         if not healthy:
-            raise RuntimeError("OpenCode Server is not healthy")
+            error_msg = f"OpenCode Server is not healthy: {reason}"
+            logger.critical("opencode_unhealthy", reason=reason)
+            raise RuntimeError(error_msg)
 
-        logger.info("opencode_connected", healthy=healthy)
+        logger.info("opencode_connected", healthy=healthy, reason=reason)
 
         self.db.add_user(self.settings.telegram_user_id)
 
@@ -167,7 +169,16 @@ class JarvisBot:
             if p.get("type") == "text"
         )
         used_model = info.get("modelID", model or "default")
-        self.db.log_response(session_id, user_id, used_model, content_text)
+        try:
+            self.db.log_response(session_id, user_id, used_model, content_text)
+        except Exception as e:
+            logger.warning(
+                "response_logging_failed",
+                session_id=session_id,
+                user_id=user_id,
+                model=used_model,
+                error=str(e),
+            )
 
         return parts, info
 
@@ -245,13 +256,19 @@ class JarvisBot:
                         self.db.log_message(user_id, "out", part.get("text", "")[:200])
 
         except OpenCodeError as e:
-            logger.error("opencode_error", error=str(e))
+            logger.error("opencode_error", error=str(e), status_code=e.status_code)
             await self._handle_error(update, f"OpenCode error: {e}")
         except Exception as e:
-            logger.error("handler_error", error=str(e))
-            await self._handle_error(update, "Unexpected error occurred")
+            logger.error("handler_error", error=str(e), exc_info=True)
+            await self._handle_error(update, f"Unexpected error: {str(e)[:200]}")
 
     async def _start_model_selection(self, update: Update, user_id: int) -> None:
+        """Start model selection flow.
+
+        Args:
+            update: Telegram update.
+            user_id: Telegram user ID.
+        """
         msg = update.effective_message
         if msg is None:
             return
@@ -259,7 +276,12 @@ class JarvisBot:
         if model_count == 0:
             await msg.reply_text("No favorite models configured in .jarvis/favorite_models.json")
             return
-        self.db.set_user_state(user_id, "awaiting_model_selection")
+        try:
+            self.db.set_user_state(user_id, "awaiting_model_selection")
+        except Exception as e:
+            logger.error("set_user_state_failed", user_id=user_id, error=str(e))
+            await msg.reply_text("❌ Failed to start model selection. Please try again.")
+            return
         model_list = self.models.format_telegram_list()
         await msg.reply_text(
             "📋 <b>Available Models</b>\n\n"
@@ -269,12 +291,21 @@ class JarvisBot:
         )
 
     async def _handle_model_selection(self, update: Update, text: str) -> None:
+        """Handle model selection response.
+
+        Args:
+            update: Telegram update.
+            text: User's response text.
+        """
         msg = update.effective_message
         if msg is None:
             return
         user_id = update.effective_user.id if update.effective_user else 0
         if self.models.is_cancel(text):
-            self.db.clear_user_state(user_id)
+            try:
+                self.db.clear_user_state(user_id)
+            except Exception as e:
+                logger.warning("clear_user_state_failed", user_id=user_id, error=str(e))
             await msg.reply_text("Model selection cancelled.")
             return
         if not text.strip().isdigit():
@@ -286,7 +317,11 @@ class JarvisBot:
             await msg.reply_text(f"Invalid selection. Choose 1-{self.models.get_count()} or cancel.")
             return
 
-        self.db.clear_user_state(user_id)
+        try:
+            self.db.clear_user_state(user_id)
+        except Exception as e:
+            logger.warning("clear_user_state_failed", user_id=user_id, error=str(e))
+
         self._model_preferences[user_id] = model_id
         logger.info("model_preference_set", model=model_id, user_id=user_id)
 
@@ -304,12 +339,6 @@ class JarvisBot:
             raise RuntimeError("Bot not initialized")
 
         await self.app.initialize()
-
-        try:
-            await self.app.bot.delete_webhook(drop_pending_updates=True)
-            logger.info("webhook_deleted")
-        except Exception as e:
-            logger.warning("webhook_delete_failed", error=str(e))
 
         self._running = True
         logger.info("bot_started")
