@@ -19,6 +19,9 @@ forwards your messages to OpenCode Server.
 - File references work: `explain @jarvis/src/config.py`
 - Bash commands work: `!ls -la`
 - Single user security (Telegram ID allowlist)
+- Model selection from favorites: `!models` to choose
+- Response logging with model and agent info
+- Bot token security (httpx logs filtered)
 - Webhook mode via Tailscale Funnel (fast, low latency)
 - Modular architecture with command routing
 
@@ -94,6 +97,20 @@ All intelligence lives in OpenCode Server.
 ## Configuration
 
 See `.env.example` for all configuration options.
+
+### Model Selection
+
+Jarvis uses favorite models configured in `.jarvis/favorite_models.json`:
+
+```json
+[
+  "opencode/glm-5",
+  "opencode/minimax-m2.5-free",
+  "openai/gpt-5.3-codex"
+]
+```
+
+Use `!models` to select a model for your session. The preference is stored per-user and used for all subsequent messages.
 
 ### Telegram Mode: Webhook (Default)
 
@@ -183,17 +200,19 @@ asyncio.run(test())
 ### 4. Manual Telegram Testing
 After starting the bot with `docker compose up -d`:
 
-1. Message your bot with `/new` - should create a session
-2. Send a regular message - should get OpenCode response
-3. Try `/models` - should show available models
+1. Message your bot with `!models` - should show favorite models
+2. Reply with model number to set your preference
+3. Send a regular message - should use your selected model
 4. Try `/compact` - should compact conversation
 
-**All commands use `/` prefix:**
+**Commands use `!` prefix for Jarvis-native commands:**
+- `!models` - Show and select favorite models
+- `!favmodels` - Alias for `!models`
+
+**OpenCode commands use `/` prefix (forwarded to OpenCode):**
 - `/new [title]` - Create new session
 - `/switch <session_id>` - Switch to session
 - `/sessions` - List your sessions
-- `/models` - Show available models
-- `/model <provider/model>` - Set model
 - `/compact` - Compact conversation
 - `/undo`, `/redo` - Undo/redo changes
 - `/share` - Share session

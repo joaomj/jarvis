@@ -5,9 +5,9 @@
 
 ## Current Status
 
-**Phase**: 1 (MVP) - Telegram-OpenCode Bridge  
-**Status**: Implementation complete, ready for deployment  
-**Last Updated**: 2026-02-08
+**Phase**: 1 (MVP) - Telegram-OpenCode Bridge
+**Status**: Implementation complete, model selection and response logging added
+**Last Updated**: 2026-02-14
 
 ## Migration Complete
 
@@ -16,7 +16,7 @@ The codebase has been migrated from a monolithic structure to a modular architec
 - **Handlers Package**: Modular command handlers (`handlers/commands.py`)
 - **Structured Logging**: JSON logging with correlation IDs (`logging_config.py`)
 - **Models & Exceptions**: Type-safe data structures and error handling
-- **49 Tests**: Comprehensive test coverage including integration tests
+- **51 Tests**: Comprehensive test coverage including integration tests
 
 ## Architecture Overview
 
@@ -96,6 +96,20 @@ This allows:
 | `POST /session/{id}/message` | Send regular text |
 | `POST /session/{id}/command` | Execute slash commands |
 
+### Model Format
+
+OpenCode requires model parameter as an object:
+```json
+{
+  "model": {
+    "providerID": "opencode",
+    "modelID": "glm-5"
+  }
+}
+```
+
+Jarvis parses `provider/model` strings and converts to this format. Model and agent info are extracted from response `info` object.
+
 ## Deployment
 
 - **Host**: Mac Mini M4 (16GB)
@@ -141,6 +155,7 @@ jarvis/
 │   ├── bot.py                    # Telegram bot implementation (webhook mode)
 │   ├── command_router.py         # Central command routing logic
 │   ├── config.py                 # Configuration (pydantic-settings)
+│   ├── database.py               # SQLite database for responses and audit
 │   ├── exceptions.py             # Custom exception classes
 │   ├── formatter.py              # Response formatting (markdown, chunking)
 │   ├── logging_config.py           # Structured logging (structlog)
@@ -150,7 +165,7 @@ jarvis/
 │   └── handlers/                 # Modular command handlers
 │       ├── __init__.py
 │       └── commands.py           # Bridge-native command implementations
-├── tests/                        # Test suite (49 tests)
+├── tests/                        # Test suite (51 tests)
 │   ├── test_bot.py              # Bot functionality tests
 │   ├── test_config.py           # Configuration tests
 │   ├── test_formatter.py        # Response formatting tests
@@ -182,8 +197,10 @@ jarvis/
 - `tests/test_migration.py` - Migration verification tests
 
 **Files Modified**:
-- `bot.py` - Adapted to use new command router
-- `tests/` - All tests updated for new architecture
+- `bot.py` - Adapted to use new command router, model/agent from response
+- `database.py` - Added responses table with 30-day cleanup
+- `opencode_client.py` - Fixed model format, extract agent from response
+- `tests/` - All tests updated for new architecture (51 tests total)
 
 ## Testing Strategy
 
@@ -196,7 +213,7 @@ jarvis/
 | `test_formatter.py` | Response formatting, markdown, chunking | 12 |
 | `test_logging.py` | Structured logging, JSON output | 5 |
 | `test_migration.py` | Migration verification, command routing | 4 |
-| `test_opencode_client.py` | OpenCode API client, health checks | 12 |
+| `test_opencode_client.py` | OpenCode API client, health checks | 14 |
 
 ### Running Tests
 
@@ -234,3 +251,6 @@ All commits are checked for:
 - **2026-02-08**: Migration to modular architecture improved testability significantly
 - **2026-02-08**: Command router pattern simplifies adding new commands
 - **2026-02-08**: Structured logging with correlation IDs essential for debugging
+- **2026-02-14**: OpenCode API requires model as object {providerID, modelID}, not string
+- **2026-02-14**: Model and agent info available in response info, no separate API calls needed
+- **2026-02-14**: httpx INFO logs expose bot tokens, must be suppressed in production
