@@ -3,8 +3,7 @@
 Thin passthrough bridge between Telegram and OpenCode Server.
 """
 
-import json
-from pathlib import Path
+import html
 from typing import Any
 
 from telegram import Update
@@ -30,6 +29,7 @@ class JarvisBot:
         self.formatter = ResponseFormatter()
         self.opencode: OpenCodeClient | None = None
         self.sessions: dict[int, str] = {}
+        self._model_preferences: dict[int, str] = {}
         self.app: Application | None = None
         self.polling: PollingEngine | None = None
         self.db = Database(settings.database_path)
@@ -44,10 +44,10 @@ class JarvisBot:
 
     async def initialize(self) -> None:
         """Initialize bot and OpenCode client."""
-        # Initialize OpenCode
         self.opencode = OpenCodeClient(
             self.settings.opencode_url,
             self.settings.opencode_server_password,
+            log_level=self.settings.log_level,
         )
 
         healthy = await self.opencode.health_check()
@@ -56,20 +56,18 @@ class JarvisBot:
 
         logger.info("opencode_connected", healthy=healthy)
 
-        # Load sessions
-        await self._load_sessions()
-
-        # Add user to DB
         self.db.add_user(self.settings.telegram_user_id)
 
-        # Initialize Telegram app
+        deleted = self.db.cleanup_old_responses(30)
+        if deleted > 0:
+            logger.info("response_cleanup_complete", deleted=deleted)
+
         self.app = (
             Application.builder()
             .token(self.settings.telegram_bot_id)
             .build()
         )
 
-        # Create polling engine
         self.polling = PollingEngine(
             self.app,
             interval=self.settings.telegram_polling_interval,
@@ -80,8 +78,6 @@ class JarvisBot:
 
     async def shutdown(self) -> None:
         """Cleanup resources."""
-        await self._save_sessions()
-
         if self.opencode:
             await self.opencode.close()
 
@@ -92,46 +88,43 @@ class JarvisBot:
         return self.db.is_user_allowed(user_id)
 
     async def _get_or_create_session(self, user_id: int) -> str:
-        """Get or create OpenCode session."""
+        """Find existing session by title or create new one."""
         if user_id in self.sessions:
             session_id = self.sessions[user_id]
-            logger.info("session_found", user_id=user_id, session_id=session_id)
+            logger.info("session_found_in_memory", user_id=user_id, session_id=session_id)
             return session_id
 
         if not self.opencode:
             raise RuntimeError("OpenCode client not initialized")
 
-        session_id = await self.opencode.create_session(f"jarvis-user-{user_id}")
-        self.sessions[user_id] = session_id
-        await self._save_sessions()
+        session_title = f"jarvis-user-{user_id}"
+        sessions = await self.opencode.list_sessions()
+        user_session = next(
+            (s for s in sessions if s.get("title") == session_title),
+            None
+        )
 
+        if user_session:
+            session_id = user_session["id"]
+            self.sessions[user_id] = session_id
+            logger.info("session_found_in_opencode", user_id=user_id, session_id=session_id)
+            return session_id
+
+        session_id = await self.opencode.create_session(session_title)
+        self.sessions[user_id] = session_id
         logger.info("session_created", user_id=user_id, session_id=session_id)
         return session_id
 
-    async def _load_sessions(self) -> None:
-        """Load sessions from storage."""
-        storage_path = Path(self.settings.session_storage_path)
-        if storage_path.exists():
-            try:
-                data = json.loads(storage_path.read_text())
-                self.sessions = {int(k): v for k, v in data.items()}
-                logger.info("sessions_loaded", count=len(self.sessions))
-            except (json.JSONDecodeError, ValueError) as e:
-                logger.error("sessions_load_failed", error=str(e))
-                self.sessions = {}
-        else:
-            self.sessions = {}
+    def _get_model_for_user(self, user_id: int) -> str | None:
+        """Get model preference for user.
 
-    async def _save_sessions(self) -> None:
-        """Save sessions to storage."""
-        storage_path = Path(self.settings.session_storage_path)
-        storage_path.parent.mkdir(parents=True, exist_ok=True)
+        Args:
+            user_id: Telegram user ID.
 
-        try:
-            storage_path.write_text(json.dumps(self.sessions, indent=2))
-            logger.info("sessions_saved", count=len(self.sessions))
-        except OSError as e:
-            logger.error("sessions_save_failed", error=str(e))
+        Returns:
+            Model ID or None (use OpenCode default).
+        """
+        return self._model_preferences.get(user_id)
 
     async def _process_input(
         self,
@@ -139,22 +132,44 @@ class JarvisBot:
         user_id: int,
         session_id: str,
         text: str,
-    ) -> list[dict[str, Any]] | None:
-        """Process message text and return OpenCode response when applicable."""
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
+        """Process message text and return OpenCode response.
+
+        Returns:
+            tuple of (parts, info) or None if no response needed.
+        """
         if self.db.get_user_state(user_id) == "awaiting_model_selection":
-            await self._handle_model_selection(update, session_id, text)
+            await self._handle_model_selection(update, text)
             return None
         if not self.opencode:
             raise RuntimeError("OpenCode not initialized")
+
+        model = self._get_model_for_user(user_id)
+
         if text.startswith("!"):
             parts = text[1:].split(maxsplit=1)
             command = parts[0]
             arguments = parts[1] if len(parts) > 1 else ""
-            if command == "models":
+            if command in {"models", "favmodels"}:
                 await self._start_model_selection(update, user_id)
                 return None
-            return await self.opencode.send_command(session_id, command, arguments)
-        return await self.opencode.send_message(session_id, text)
+            parts, info = await self.opencode.send_command(
+                session_id, command, arguments, model=model
+            )
+        else:
+            parts, info = await self.opencode.send_message(
+                session_id, text, model=model
+            )
+
+        content_text = "\n".join(
+            p.get("text", "")
+            for p in parts
+            if p.get("type") == "text"
+        )
+        used_model = info.get("modelID", model or "default")
+        self.db.log_response(session_id, user_id, used_model, content_text)
+
+        return parts, info
 
     async def _send_response(
         self, update: Update, parts: list[dict[str, Any]]
@@ -193,12 +208,10 @@ class JarvisBot:
         user_id = update.effective_user.id
         text = update.effective_message.text or ""
 
-        # Authorization check
         if not self._is_authorized(user_id):
             logger.warning("unauthorized", user_id=user_id, text=text[:50])
             return
 
-        # Audit log
         if self.settings.enable_message_audit:
             self.db.log_message(user_id, "in", text)
 
@@ -206,17 +219,28 @@ class JarvisBot:
 
         try:
             session_id = await self._get_or_create_session(user_id)
-            response = await self._process_input(update, user_id, session_id, text)
-            if response is None:
+            result = await self._process_input(update, user_id, session_id, text)
+            if result is None:
                 return
 
-            # Send response
-            await self._send_response(update, response)
-            logger.info("response_sent", parts=len(response))
+            parts, info = result
 
-            # Audit log outgoing
+            await self._send_response(update, parts)
+
+            model_id = info.get("modelID", "")
+            provider_id = info.get("providerID", "")
+            agent = info.get("agent", "")
+            used_model = f"{provider_id}/{model_id}" if provider_id else model_id
+
+            logger.info(
+                "response_sent",
+                parts=len(parts),
+                model=used_model,
+                agent=agent,
+            )
+
             if self.settings.enable_message_audit:
-                for part in response:
+                for part in parts:
                     if part.get("type") == "text":
                         self.db.log_message(user_id, "out", part.get("text", "")[:200])
 
@@ -244,7 +268,7 @@ class JarvisBot:
             parse_mode="HTML",
         )
 
-    async def _handle_model_selection(self, update: Update, session_id: str, text: str) -> None:
+    async def _handle_model_selection(self, update: Update, text: str) -> None:
         msg = update.effective_message
         if msg is None:
             return
@@ -261,15 +285,16 @@ class JarvisBot:
         if model_id is None:
             await msg.reply_text(f"Invalid selection. Choose 1-{self.models.get_count()} or cancel.")
             return
-        if not self.opencode:
-            raise RuntimeError("OpenCode not initialized")
+
         self.db.clear_user_state(user_id)
-        response = await self.opencode.send_command(
-            session_id=session_id,
-            command="model",
-            arguments=model_id,
+        self._model_preferences[user_id] = model_id
+        logger.info("model_preference_set", model=model_id, user_id=user_id)
+
+        await msg.reply_text(
+            f"✅ Model set to: <code>{html.escape(model_id)}</code>\n\n"
+            "This will be used for your next message.",
+            parse_mode="HTML",
         )
-        await self._send_response(update, response)
 
     async def start(self) -> None:
         """Start bot with polling."""
