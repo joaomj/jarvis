@@ -65,21 +65,23 @@ class TestOpenCodeClient:
 
     @respx.mock
     async def test_send_message_success(self, client):
-        """Test sending message returns response parts."""
+        """Test sending message returns response parts and info."""
         route = respx.post("http://localhost:4096/session/ses-123/message").mock(
             return_value=httpx.Response(
                 200,
                 json={
-                    "info": {"id": "msg-456"},
+                    "info": {"id": "msg-456", "modelID": "glm-5", "providerID": "opencode", "agent": "build"},
                     "parts": [{"type": "text", "text": "Hello back"}],
                 }
             )
         )
 
-        parts = await client.send_message("ses-123", "Hello")
+        parts, info = await client.send_message("ses-123", "Hello")
 
         assert len(parts) == 1
         assert parts[0]["text"] == "Hello back"
+        assert info["id"] == "msg-456"
+        assert info["modelID"] == "glm-5"
         assert route.called
 
     @respx.mock
@@ -94,21 +96,22 @@ class TestOpenCodeClient:
 
     @respx.mock
     async def test_send_command_success(self, client):
-        """Test executing command returns response parts."""
+        """Test executing command returns response parts and info."""
         route = respx.post("http://localhost:4096/session/ses-123/command").mock(
             return_value=httpx.Response(
                 200,
                 json={
-                    "info": {"id": "msg-789"},
+                    "info": {"id": "msg-789", "modelID": "glm-5", "agent": "build"},
                     "parts": [{"type": "text", "text": "Changes reverted"}],
                 }
             )
         )
 
-        parts = await client.send_command("ses-123", "undo")
+        parts, info = await client.send_command("ses-123", "undo")
 
         assert len(parts) == 1
         assert parts[0]["text"] == "Changes reverted"
+        assert info["id"] == "msg-789"
         assert route.called
         # Verify request body (JSON has no spaces)
         request = route.calls[0].request
@@ -118,7 +121,7 @@ class TestOpenCodeClient:
     async def test_send_command_with_arguments(self, client):
         """Test command execution with arguments."""
         route = respx.post("http://localhost:4096/session/ses-123/command").mock(
-            return_value=httpx.Response(200, json={"parts": []})
+            return_value=httpx.Response(200, json={"info": {}, "parts": []})
         )
 
         await client.send_command("ses-123", "share", "--public")

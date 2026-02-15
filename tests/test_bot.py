@@ -59,14 +59,14 @@ class TestJarvisBotPolling:
         with patch("jarvis.bot.OpenCodeClient") as mock_client:
             mock_instance = MagicMock()
             mock_instance.health_check = AsyncMock(return_value=True)
+            mock_instance.get_config = AsyncMock(return_value={})
+            mock_instance.get_current_model = MagicMock(return_value=None)
             mock_client.return_value = mock_instance
 
             bot = JarvisBot(settings)
-            
-            with patch.object(bot, "_load_sessions", AsyncMock()):
-                await bot.initialize()
-                
-                assert Path(settings.database_path).exists()
+            await bot.initialize()
+
+            assert Path(settings.database_path).exists()
 
     @pytest.mark.asyncio
     async def test_is_authorized_checks_database(self, settings):
@@ -95,22 +95,6 @@ class TestJarvisBotPolling:
         # Verify count
         count = bot.db.get_user_message_count(123456789)
         assert count == 1
-
-    @pytest.mark.asyncio
-    async def test_save_and_load_sessions(self, bot, tmp_path, monkeypatch):
-        """Test session persistence works."""
-        storage_path = tmp_path / "sessions.json"
-        monkeypatch.setattr(
-            bot.settings, "session_storage_path", str(storage_path)
-        )
-
-        bot.sessions = {123456789: "ses-abc", 987654321: "ses-def"}
-        await bot._save_sessions()
-
-        bot.sessions = {}
-        await bot._load_sessions()
-
-        assert bot.sessions == {123456789: "ses-abc", 987654321: "ses-def"}
 
     @pytest.mark.asyncio
     async def test_handle_update_rejects_unauthorized(self, settings, mock_opencode):

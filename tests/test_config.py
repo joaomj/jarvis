@@ -23,7 +23,7 @@ class TestSettings:
         assert settings.telegram_user_id == 123456789
         assert settings.opencode_server_password == "test_password"
         # Check polling defaults
-        assert settings.telegram_polling_interval == 2.0
+        assert settings.telegram_polling_interval == 1.0
         assert settings.telegram_polling_timeout == 30
         assert settings.log_level == "INFO"
         assert settings.jarvis_env == "production"
@@ -102,10 +102,9 @@ class TestSettings:
 
         settings = get_settings()
 
-        assert settings.telegram_polling_interval == 2.0
+        assert settings.telegram_polling_interval == 1.0
         assert settings.telegram_polling_timeout == 30
         # Note: opencode_url default only works if not set in .env
         # assert settings.opencode_url == "http://localhost:4096"
-        assert settings.session_storage_path == ".jarvis/sessions.json"
         assert settings.database_path == ".jarvis/jarvis.db"
         assert settings.enable_message_audit is True
