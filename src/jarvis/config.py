@@ -75,7 +75,15 @@ class Settings(BaseSettings):
     # X (Twitter) API settings
     x_bearer_token: str | None = Field(
         default=None,
-        description="X API Bearer token (read-only, from developer.twitter.com)",
+        description="X API Bearer token (read-only, from developer.twitter.com) - DEPRECATED, use OAuth 2.0",
+    )
+    x_client_id: str | None = Field(
+        default=None,
+        description="X OAuth 2.0 Client ID from Developer Console",
+    )
+    x_client_secret: str | None = Field(
+        default=None,
+        description="X OAuth 2.0 Client Secret from Developer Console",
     )
 
     @field_validator("log_level")

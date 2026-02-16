@@ -293,7 +293,7 @@ class JarvisBot:
         logger.info("message_received", user_id=user_id, text=text[:50])
 
         # Trigger bookmark sync on first message of the day
-        if self.settings.x_bearer_token and self._should_sync():
+        if self.settings.x_client_id and self._should_sync():
             try:
                 await self._run_bookmark_sync()
             except Exception as e:
@@ -341,11 +341,20 @@ class JarvisBot:
 
     async def _run_bookmark_sync(self) -> None:
         """Run bookmark sync."""
-        if not self.settings.x_bearer_token:
+        if not self.settings.x_client_id or not self.settings.x_client_secret:
+            logger.warning("x_oauth_not_configured")
+            return
+
+        if not self.db.has_oauth_tokens():
+            logger.warning("x_oauth_tokens_not_found_run_setup")
             return
 
         logger.info("starting_auto_sync")
-        sync = BookmarkSync(self.db, self.settings.x_bearer_token)
+        sync = BookmarkSync(
+            self.db,
+            self.settings.x_client_id,
+            self.settings.x_client_secret,
+        )
 
         # Check if first sync ever
         sync_status = self.db.get_sync_status()

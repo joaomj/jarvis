@@ -4,6 +4,58 @@ All notable changes to Jarvis will be documented in this file.
 
 ## [Unreleased]
 
+## [Changed] - 2026-02-16 - X Bookmarks OAuth 2.0 Migration
+
+### Authentication Migration
+- **BREAKING**: Replaced X API Bearer token with OAuth 2.0 PKCE user-context authentication
+- Bearer token (`X_BEARER_TOKEN`) is now deprecated; use `X_CLIENT_ID` and `X_CLIENT_SECRET`
+- OAuth 2.0 required because Bookmarks API endpoint needs user-context (app-only tokens return 403 Forbidden)
+- Added `scripts/setup_x_oauth.py` for one-time OAuth 2.0 authorization flow
+- Scopes requested: `bookmark.read`, `tweet.read`, `users.read`, `offline.access`
+
+### Database Schema
+- **New table**: `x_oauth_tokens` stores access token, refresh token, expiration, and scope
+- Tokens persist in database (not .env) because they rotate frequently
+- Auto-refresh tokens when expired (5-minute buffer before expiration)
+
+### API Client Changes
+- `XAPIClient` now requires `db`, `client_id`, `client_secret` (instead of `access_token`)
+- Added `_get_user_id()` method to fetch authenticated user ID (API requires actual user ID, not "me")
+- Added `_get_valid_access_token()` method with auto-refresh logic
+- Endpoint changed from `/users/me/bookmarks` to `/users/{user_id}/bookmarks`
+- Removed tweepy dependency; now uses httpx directly for simpler OAuth 2.0 handling
+
+### Configuration
+- Added `x_client_id` to Settings (OAuth 2.0 Client ID from Developer Console)
+- Added `x_client_secret` to Settings (OAuth 2.0 Client Secret from Developer Console)
+- `x_bearer_token` marked as deprecated but still present for backward compatibility
+
+### Bot Integration
+- Auto-sync now checks for OAuth tokens (`db.has_oauth_tokens()`) instead of bearer token
+- Warning logged if OAuth tokens not found, prompting user to run setup script
+
+### Testing
+- Updated `TestXAPIClient` fixture to create mock database with stored OAuth tokens
+- Updated `TestBookmarkSync` to use new constructor signature
+- All 37 tests passing
+
+### Setup Instructions
+1. Create X app at https://developer.x.com
+2. Set callback URL to `http://127.0.0.1:8080/callback`
+3. Set type to "Web App, Automated App or Bot" (confidential client)
+4. Copy Client ID and Client Secret to `.env` as `X_CLIENT_ID` and `X_CLIENT_SECRET`
+5. Purchase API credits (Bookmarks endpoint is pay-per-use: $0.005/request)
+6. Run `pdm run python scripts/setup_x_oauth.py` to authorize
+7. First sync triggered automatically on first message of the day
+
+### Known Limitations
+- **bookmarked_at**: X API doesn't return bookmark timestamp; column shows sync time, not actual bookmark action time
+- Use `id` order as proxy for bookmark recency (newer bookmarks have higher database IDs)
+- **Cost**: Full sync of 100 bookmarks costs ~$0.50 ($0.005 per bookmark)
+
+### Documentation
+- Added `docs/x-bookmarks-queries.md` with SQLite query reference
+
 ## [Added] - c508752 - X Bookmarks Integration
 
 ### Database Schema

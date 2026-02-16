@@ -16,15 +16,21 @@ logger = get_logger(__name__)
 class BookmarkSync:
     """Bookmark synchronization manager."""
 
-    def __init__(self, db: Database, access_token: str):
+    def __init__(
+        self,
+        db: Database,
+        client_id: str,
+        client_secret: str,
+    ):
         """Initialize bookmark sync.
 
         Args:
             db: Database instance.
-            access_token: X Bearer token.
+            client_id: OAuth 2.0 Client ID.
+            client_secret: OAuth 2.0 Client Secret.
         """
         self.db = db
-        self.client = XAPIClient(access_token)
+        self.client = XAPIClient(db, client_id, client_secret)
 
     async def sync_bookmarks(self, full_sync: bool = False) -> dict[str, Any]:
         """Sync bookmarks from X to local database.

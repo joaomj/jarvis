@@ -180,13 +180,23 @@ class TestXAPIClient:
     """Test X API client."""
 
     @pytest.fixture
-    def mock_client(self):
+    def mock_client(self, tmp_path):
         """Create mock X API client."""
-        return XAPIClient("test_access_token")
+        db_path = tmp_path / "test.db"
+        db = Database(str(db_path))
+        db.save_oauth_tokens(
+            access_token="test_access_token",
+            refresh_token="test_refresh_token",
+            expires_at="2099-01-01T00:00:00+00:00",
+            scope="bookmark.read tweet.read users.read offline.access",
+        )
+        return XAPIClient(db, "test_client_id", "test_client_secret")
 
     @pytest.mark.asyncio
     async def test_get_bookmarks(self, mock_client):
         """Test fetching bookmarks."""
+        mock_client._user_id = "test_user_id"
+
         mock_response = {
             "data": [
                 {
@@ -291,7 +301,7 @@ class TestBookmarkSync:
         mock_client_instance.close = AsyncMock()
 
         with patch("jarvis.bookmarks.sync.XAPIClient", return_value=mock_client_instance):
-            sync = BookmarkSync(db, "test_token")
+            sync = BookmarkSync(db, "test_client_id", "test_client_secret")
             result = await sync.sync_bookmarks()
 
             assert result["status"] == "success"
@@ -302,7 +312,7 @@ class TestBookmarkSync:
         """Test that sync is skipped when already in progress."""
         db.update_sync_status(sync_in_progress=True)
 
-        sync = BookmarkSync(db, "test_token")
+        sync = BookmarkSync(db, "test_client_id", "test_client_secret")
         result = await sync.sync_bookmarks()
 
         assert result["status"] == "skipped"

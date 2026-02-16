@@ -155,7 +155,7 @@ First Message of Day
     ↓
 [Check Sync Status] - SQLite: x_sync_status.last_sync_date vs today
     ↓ (needs sync)
-[Fetch Bookmarks] - X API (tweepy)
+[Fetch Bookmarks] - X API (httpx)
     ├─ First run: fetch all (full sync)
     └─ Subsequent: fetch since_id (incremental)
     ↓
@@ -242,7 +242,8 @@ User Query (Telegram) - "What did I save last week?"
 **Error Handling:**
 - **API failure**: Log error, set sync_in_progress=false, retry tomorrow
 - **Database error**: Log error, set sync_in_progress=false, notify user on next query
-- **Rate limit**: Wait (tweepy auto-handles), log warning, continue
+- **Token expired**: Auto-refresh tokens, log warning, continue
+- **Rate limit**: Wait and retry with exponential backoff, log warning
 
 ### Component Relationships
 
@@ -288,11 +289,12 @@ User Query (Telegram) - "What did I save last week?"
 │ - File ops      │              ▼
 │ - Git ops      │    ┌────────────────────┐
 │ - Bash cmds    │    │  X API Client     │
-└──────────────────┘    │  (tweepy)         │
-                      │                    │
-                      │ - Pagination       │
-                      │ - Rate limiting   │
-                      └─────────┬──────────┘
+└──────────────────┘    │  (httpx)          │
+                       │                    │
+                       │ - Pagination       │
+                       │ - Rate limiting    │
+                       │ - OAuth 2.0       │
+                       └─────────┬──────────┘
                                 ▼
                       ┌────────────────────┐
                       │  SQLite Database   │
@@ -316,7 +318,7 @@ User Query (Telegram) - "What did I save last week?"
 | **Package Manager** | PDM | Modern, PEP 621 compliant, lockfile |
 | **Telegram** | python-telegram-bot 21+ | Async, well-maintained, official docs |
 | **HTTP Client** | httpx | Async, HTTP/2 support |
-| **X API Client** | tweepy 4.16+ | Most mature Python X/Twitter library |
+| **X API Client** | httpx (custom) | OAuth 2.0 PKCE, auto-refresh tokens |
 | **Config** | pydantic-settings | Validation, type-safe, .env support |
 | **Logging** | structlog | Structured JSON, correlation IDs, thread-safe |
 | **Database** | SQLite | Zero config, embedded, sufficient for single user |
@@ -361,19 +363,31 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 
 **Authentication Strategy:**
 
-**HOW**: X API Bearer token (read-only) stored in `.env` as `X_BEARER_TOKEN`
+**HOW**: OAuth 2.0 PKCE (Authorization Code Flow with PKCE)
 
 **WHY**:
-- OAuth 2.0 PKCE requires callback server, complex setup
-- Bearer token is simpler: one-time copy from developer.twitter.com
-- Read-only scope minimizes security risk
-- No user-specific data needed (personal account)
+- X API Bookmarks endpoint requires user-context authentication (app-only Bearer token returns 403 Forbidden)
+- OAuth 2.0 PKCE is the standard for confidential clients (bots, automated apps)
+- `offline.access` scope provides refresh token for long-term access without re-authorization
+- Tokens stored in database (not .env) because they rotate frequently
 
-**WHAT**: Token is passed as `Authorization: Bearer <token>` header to all X API requests
+**WHAT**: 
+- One-time setup via `scripts/setup_x_oauth.py` opens browser for user authorization
+- Scopes: `bookmark.read`, `tweet.read`, `users.read`, `offline.access`
+- Access token auto-refreshes when expired (5-minute buffer)
+- API endpoint: `/2/users/{user_id}/bookmarks` (requires actual user ID, not "me")
 
-**WHERE**: Used in `src/jarvis/bookmarks/client.py` (tweepy API client)
+**WHERE**: 
+- OAuth setup: `scripts/setup_x_oauth.py`
+- Token storage: `x_oauth_tokens` table in SQLite
+- API client: `src/jarvis/bookmarks/client.py`
 
-**Security**: Token never logged, filtered from structured logs, stored in `.env` (gitignored)
+**Security**: 
+- Client secret never exposed to browser (confidential client)
+- Tokens stored in database, filtered from logs
+- Callback server runs on localhost only (127.0.0.1:8080)
+
+**Cost**: X API is pay-per-use ($0.005 per bookmark request as of 2026)
 
 **Sync Strategy:**
 
@@ -382,22 +396,26 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 - Mode: Full sync on first run, incremental sync thereafter
 - Pagination: Uses `since_id` parameter to fetch only new bookmarks
 - Status tracking: `x_sync_status` table stores last_sync_date, last_tweet_id, total_bookmarks
+- Authentication: OAuth 2.0 tokens auto-refresh when expired
 
 **WHY**:
-- Daily sync balances freshness vs. API rate limits
+- Daily sync balances freshness vs. API cost ($0.005/request)
 - Incremental sync avoids re-fetching entire bookmark collection
 - On-message trigger eliminates background scheduler complexity
 - Status tracking enables idempotent syncs (retry-safe)
+- Token refresh ensures continuous access without re-authorization
 
 **WHAT**:
 - Typical sync: 10-30 seconds for 100-500 bookmarks
-- API rate limit: 15 requests/15-minute window (read-only)
-- Sync frequency: Once per day (respects rate limits)
+- Cost: ~$0.50 per 100-bookmark sync ($0.005 per bookmark)
+- Sync frequency: Once per day
 
 **WHERE**:
 - Sync logic: `src/jarvis/bookmarks/sync.py`
+- Token management: `src/jarvis/bookmarks/client.py::_get_valid_access_token()`
+- User ID fetch: `src/jarvis/bookmarks/client.py::_get_user_id()`
 - Status table: `x_sync_status` in SQLite database
-- Auto-sync trigger: `bot.py::_handle_update()` line 232-236
+- Auto-sync trigger: `bot.py::_handle_update()`
 
 **Query Interface:**
 
@@ -431,8 +449,17 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 - **Future enhancement**: LLM-based intent detection for better accuracy
 - **Current**: Text-based search only
 - **Future enhancement**: Vector embeddings for semantic search
+- **bookmarked_at limitation**: X API doesn't return bookmark timestamp; column shows sync time, not actual bookmark action time. Use `id` order as proxy for bookmark recency.
 
 **Database Schema:**
+
+**x_oauth_tokens table:**
+- `id` (INTEGER PRIMARY KEY CHECK (id = 1)) - Single row for single-user bot
+- `access_token` (TEXT NOT NULL) - OAuth 2.0 access token (expires in ~2 hours)
+- `refresh_token` (TEXT NOT NULL) - OAuth 2.0 refresh token (long-lived)
+- `expires_at` (TIMESTAMP NOT NULL) - Token expiration timestamp
+- `scope` (TEXT) - Granted scopes
+- `created_at`, `updated_at` (TIMESTAMP) - Token metadata
 
 **x_bookmarks table:**
 - `tweet_id` (TEXT UNIQUE, PRIMARY KEY) - Tweet unique identifier
@@ -560,7 +587,9 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 
 | Variable | Description | Default |
 |----------|-------------|----------|
-| `X_BEARER_TOKEN` | X API read-only bearer token | `None` (bookmarks disabled) |
+| `X_CLIENT_ID` | X OAuth 2.0 Client ID from Developer Console | `None` (bookmarks disabled) |
+| `X_CLIENT_SECRET` | X OAuth 2.0 Client Secret from Developer Console | `None` (bookmarks disabled) |
+| `X_BEARER_TOKEN` | X API Bearer token (DEPRECATED, use OAuth 2.0) | `None` |
 | `TELEGRAM_POLLING_INTERVAL` | Seconds between polling requests | `2.0` |
 | `TELEGRAM_POLLING_TIMEOUT` | Timeout for getUpdates in seconds | `30` |
 | `LOG_LEVEL` | Python logging level | `INFO` |
