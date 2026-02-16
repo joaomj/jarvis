@@ -39,6 +39,7 @@ env/
 
 # Jarvis local state
 /.jarvis/
+/.opencode/
 
 # Temporary files
 /tmp/
