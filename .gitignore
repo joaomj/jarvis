@@ -81,3 +81,7 @@ docker-compose.override.yml
 
 # Misc
 docs/moltbot/*
+
+# Temporary planning files
+*_PLAN.md
+*_IMPLEMENTATION_PLAN.md
