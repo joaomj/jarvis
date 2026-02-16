@@ -1,8 +1,6 @@
 """Tests for X bookmarks functionality."""
 
-import json
-from datetime import datetime
-from pathlib import Path
+from datetime import UTC, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -55,6 +53,9 @@ class TestBookmarkModels:
             text="Test tweet content",
             tweet_url="https://twitter.com/testuser/status/123456789",
             metrics=metrics,
+            note_text=None,
+            created_at=None,
+            raw_json=None,
         )
 
         assert bookmark.tweet_id == "123456789"
@@ -101,7 +102,7 @@ class TestDatabaseBookmarks:
 
     def test_get_bookmarks_by_time_range(self, db):
         """Test getting bookmarks by time range."""
-        from datetime import datetime, timedelta
+        from datetime import datetime
 
         db.save_bookmark(
             tweet_id="1",
@@ -144,8 +145,8 @@ class TestDatabaseBookmarks:
         )
 
         bookmarks = db.get_bookmarks_by_time_range(
-            (datetime.utcnow() - timedelta(days=7)).isoformat(),
-            (datetime.utcnow() + timedelta(days=1)).isoformat(),
+            (datetime.now(UTC) - timedelta(days=7)).isoformat(),
+            (datetime.now(UTC) + timedelta(days=1)).isoformat(),
         )
 
         assert len(bookmarks) == 2
@@ -294,6 +295,9 @@ class TestBookmarkSync:
                     text="Test tweet",
                     tweet_url="https://twitter.com/testuser/status/123456",
                     metrics=TweetMetrics(like_count=100),
+                    note_text=None,
+                    created_at=None,
+                    raw_json=None,
                 )
             ],
             "123456",

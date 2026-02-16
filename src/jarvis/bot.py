@@ -139,8 +139,8 @@ class JarvisBot:
         if msg is None:
             return False
 
-        if not self.settings.x_bearer_token:
-            await msg.reply_text("📚 Bookmarks not configured. Set X_BEARER_TOKEN in .env")
+        if not self.settings.x_client_id or not self.settings.x_client_secret:
+            await msg.reply_text("📚 Bookmarks not configured. Set X_CLIENT_ID and X_CLIENT_SECRET in .env")
             return False
 
         response = await query_bookmarks(text, self)

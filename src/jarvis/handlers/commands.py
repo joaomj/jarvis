@@ -4,7 +4,7 @@ Handles bridge-native commands that OpenCode doesn't have direct API for.
 """
 
 import html
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING
 
 from jarvis.logging_config import get_logger
@@ -292,7 +292,7 @@ async def query_bookmarks(query: str, bot: "JarvisBot") -> str:
         query_lower = query.lower()
 
         if "last week" in query_lower or "past week" in query_lower:
-            end_date = datetime.utcnow()
+            end_date = datetime.now(UTC)
             start_date = end_date - timedelta(days=7)
             bookmarks = bot.db.get_bookmarks_by_time_range(
                 start_date.isoformat(),
@@ -300,7 +300,7 @@ async def query_bookmarks(query: str, bot: "JarvisBot") -> str:
             )
             time_range = "last week"
         elif "last month" in query_lower or "past month" in query_lower:
-            end_date = datetime.utcnow()
+            end_date = datetime.now(UTC)
             start_date = end_date - timedelta(days=30)
             bookmarks = bot.db.get_bookmarks_by_time_range(
                 start_date.isoformat(),
@@ -308,7 +308,7 @@ async def query_bookmarks(query: str, bot: "JarvisBot") -> str:
             )
             time_range = "last month"
         elif "today" in query_lower:
-            end_date = datetime.utcnow()
+            end_date = datetime.now(UTC)
             start_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
             bookmarks = bot.db.get_bookmarks_by_time_range(
                 start_date.isoformat(),

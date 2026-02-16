@@ -3,7 +3,7 @@
 Defines data models for tweets and sync status.
 """
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -35,7 +35,7 @@ class Bookmark(BaseModel):
     text: str = Field(..., description="Full tweet text")
     note_text: str | None = Field(None, description="User's private note on bookmark")
     created_at: datetime | None = Field(None, description="Tweet creation timestamp")
-    bookmarked_at: datetime = Field(default_factory=datetime.utcnow, description="Bookmark timestamp")
+    bookmarked_at: datetime = Field(default_factory=lambda: datetime.now(UTC), description="Bookmark timestamp")
     tweet_url: str = Field(..., description="Tweet URL")
     metrics: TweetMetrics = Field(default_factory=TweetMetrics)
     media_urls: list[str] = Field(default_factory=list, description="Media URLs")
