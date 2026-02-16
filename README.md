@@ -1,347 +1,213 @@
-# Jarvis - Personal AI System
+# Jarvis
 
+[![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python 3.12+](https://img.shields.io/badge/python-3.12+-blue.svg)](https://www.python.org/downloads/)
+[![Docker](https://img.shields.io/badge/docker-supported-2496ED?logo=docker)](https://www.docker.com/)
 
-A self-hosted, sovereign personal AI assistant running on local hardware, accessible via Telegram.
+Personal AI assistant accessible via Telegram. Chat with OpenCode AI from your phone, query X bookmarks naturally, no public URLs required.
 
-**Status:** 🚧 Under Active Development
-
-**Version:** 0.1.0 (MVP in Progress)
-
----
-
-## Overview
-
-Jarvis is a "Second Brain" that helps you:
-
-- **Retrieve personal memories** from a local filesystem you control
-- **Generate grounded answers** with real-time web data and academic citations
-- **Process documents** (PDF, DOCX, text, code) as conversation context
-- **Create research reports** (8-15 pages) with deep academic sources
-
-**Key Features:**
-
-- Three conversation modes: Fast (quick answers), Thinking (deep reasoning), Deep Research (academic reports)
-- All responses include source citations using academic footnote conventions
-- Memories stored as plain Markdown files (portable, queryable, sovereign)
-- Secure: 4-layer defense with Cloudflare Tunnel, no open ports
-- Local-first with automated cloud backup (Google Drive API)
-- Comprehensive observability (logs, metrics, health checks)
-
----
+> **Disclaimer**: This project uses OpenCode but is not built by the OpenCode team
+> and is not affiliated with [OpenCode](https://opencode.ai) in any way.
 
 ## Quick Start
 
-### Prerequisites
-
-- macOS (Mac Mini M4/M2 recommended)
-- Python 3.12+
-- PDM (Python package manager)
-- Docker (optional, for containerized deployment)
-- Telegram account
-- Google Cloud account (for Gemini API)
-
-### Installation
-
 ```bash
-# Clone repository
-git clone https://github.com/joaomj/jarvis.git
+# Clone and configure
+git clone https://github.com/yourusername/jarvis.git
 cd jarvis
-
-# Install dependencies
-pdm install
-
-# Create environment file
 cp .env.example .env
+# Edit .env with your tokens
 
-# Edit .env with your credentials
-nano .env  # Fill in TELEGRAM_BOT_TOKEN, GEMINI_API_KEY, etc.
+# Create Telegram bot
+# Message @BotFather on Telegram, run /newbot
+# Copy token to .env as TELEGRAM_BOT_ID
 
-# Set permissions on .env
-chmod 600 .env
+# Get your Telegram user ID
+# Message @userinfobot on Telegram
+# Copy ID to .env as TELEGRAM_USER_ID
 
-# Run application
-pdm run uvicorn src.jarvis.main:app --host 0.0.0.0 --port 8000
+# Start
+docker compose up -d
+
+# Done! Message your bot on Telegram
 ```
 
-### Docker Deployment
+## Features
+
+**Current (MVP):**
+- 📱 Chat with OpenCode AI via Telegram from anywhere
+- 🔄 All OpenCode commands work: `/compact`, `/undo`, `/redo`, `/share`, `/thinking`, etc.
+- 📁 File references work: `explain @src/config.py`
+- 💻 Bash commands work: `!ls -la`
+- 🎛️ Model selection: `/models` or `!models` to pick favorites
+- 📚 X bookmarks sync: Automatic daily sync, natural language queries
+- 🔒 Single-user security (Telegram ID allowlist)
+- 📊 Response logging with model info
+- 🧹 Auto-cleanup (30 days)
+- 🚀 Polling mode - runs locally, no Tailscale needed
+
+**Planned (Phase 2):**
+- URL summarization (X threads, Substack articles)
+- Voice message transcription
+
+## Usage
+
+### Chat with AI
+
+```
+You: Explain the bug in src/auth.py
+Jarvis: [AI analyzes code, provides explanation]
+
+You: /compact
+Jarvis: [Conversation compacted]
+
+You: !ls -la
+Jarvis: [Shows directory listing]
+```
+
+### Query X Bookmarks
+
+Jarvis automatically syncs your X bookmarks and lets you query them naturally.
+
+```
+You: What did I save last week?
+Jarvis: 📚 Bookmarks from last week (12 total)
+   1. @author1
+      Preview of first tweet...
+   2. @author2
+      Preview of second tweet...
+
+You: Show me my recent bookmarks
+Jarvis: 📚 Bookmarks from recent (5 total)
+   [...]
+
+You: What did I bookmark about AI?
+Jarvis: 📚 Bookmarks matching "AI" (8 total)
+   [...]
+```
+
+### Commands
+
+**OpenCode Commands** (forwarded to OpenCode Server):
+| Command | Description |
+|---------|-------------|
+| `/compact` | Compact conversation |
+| `/summarize` | Summarize conversation |
+| `/details` | Show task details |
+| `/export` | Export conversation |
+| `/undo` | Undo last change |
+| `/redo` | Redo last change |
+| `/share` | Share session |
+| `/unshare` | Unshare session |
+| `/thinking` | Toggle thinking display |
+| `/connect` | Connect to repository |
+| `/help` | Show help |
+
+**Local Commands** (handled by Jarvis):
+| Command | Description |
+|---------|-------------|
+| `/models` | Show and select favorite models |
+| `/new [title]` | Create new session |
+| `/sessions` | List your sessions |
+| `/model <provider/model>` | Set model directly |
+
+**Native Shortcuts:**
+- `!models` - Same as `/models`
+- `!favmodels` - Same as `/models`
+- `!<cmd>` - Forward any command to OpenCode
+
+## Requirements
+
+- Python 3.11+
+- Docker or Orbstack
+- Telegram account
+- OpenCode Server running
+- OpenCode Zen API key
+
+## Configuration
+
+### Required Environment Variables
 
 ```bash
-# Build and run with Docker Compose
-docker-compose up -d
+# Telegram Bot Configuration
+TELEGRAM_BOT_ID=your_bot_token_here          # From @BotFather
+TELEGRAM_USER_ID=123456789                  # From @userinfobot
 
-# Check health
-curl http://localhost:8000/health
+# OpenCode Server Configuration
+OPENCODE_URL=http://localhost:4096              # Your OpenCode Server URL
+OPENCODE_SERVER_PASSWORD=secure_password_here      # Your server password
 ```
 
----
+### Optional Configuration
+
+```bash
+# Polling Configuration
+TELEGRAM_POLLING_INTERVAL=1.0                 # Seconds between polls (default)
+TELEGRAM_POLLING_TIMEOUT=30                   # Timeout in seconds
+
+# Database & Logging
+DATABASE_PATH=.jarvis/jarvis.db
+ENABLE_MESSAGE_AUDIT=true
+LOG_LEVEL=INFO
+
+# X Bookmarks (Optional)
+X_BEARER_TOKEN=your_bearer_token_here          # From developer.twitter.com
+```
+
+See `.env.example` for complete configuration options.
+
+### Favorite Models
+
+Create `.jarvis/favorite_models.json`:
+
+```json
+[
+  "opencode/glm-5",
+  "opencode/minimax-m2.5-free",
+  "openai/gpt-4o"
+]
+```
+
+Use `/models` to interactively select, or `!model provider/model` to set directly.
 
 ## Documentation
 
-- **[PRDv2.md](docs/PRDv2.md)** - Complete Product Requirements Document (v2.1)
-- **[tech-context.md](docs/tech-context.md)** - Architecture and technical design
-- **[AGENTS.md](AGENTS.md)** - Development guidelines and coding standards
-- **[.env.example](.env.example)** - Environment variables template
-
----
-
-## Project Structure
-
-```
-jarvis/
-├── .env.example              # Environment variables template
-├── .gitignore               # Git ignore rules
-├── pyproject.toml           # PDM configuration and dependencies
-├── README.md                # This file
-│
-├── src/jarvis/             # Application source code
-│   ├── main.py             # FastAPI entry point
-│   ├── config.py           # Pydantic Settings
-│   ├── agents/             # PydanticAI agents
-│   ├── tools/              # Agent tools (memory, web, files)
-│   ├── citation/           # Citation management
-│   ├── reports/            # Report generation
-│   ├── context/            # Session management
-│   ├── security/           # Security middleware
-│   └── telegram/           # Telegram integration
-│
-├── memories/               # Personal knowledge (Markdown)
-│   ├── conversations/      # Conversation histories
-│   ├── facts/             # Personal facts and preferences
-│   └── entities/          # People, projects, locations
-│
-├── reports/                # Generated research reports (PDF)
-├── tests/                  # Test suites
-├── docs/                   # Documentation
-│   ├── tech-context.md     # Architecture (source of truth)
-│   ├── issues/            # Issue tracking
-│   └── PRDv2.md          # Product requirements
-│
-└── AGENTS.md               # Development guidelines
-```
-
----
+- **[Technical Context](docs/tech-context.md)** - Architecture, data flows, design decisions
+- **[Product Requirements](docs/prd/)** - Full specification (20 sections)
+- **[Changelog](CHANGELOG.md)** - Version history and changes
 
 ## Development
 
-### Setup Development Environment
-
 ```bash
-# Install PDM (if not already installed)
-pip install pdm
-
-# Install project dependencies
+# Install dependencies
 pdm install
 
-# Install dev dependencies
-pdm install -d
-```
+# Run locally (without Docker)
+pdm run python -m jarvis
 
-### Running Tests
-
-```bash
-# Run all tests
+# Run tests
 pdm run pytest
 
-# Run with coverage
-pdm run pytest --cov=src
-
-# Run specific test file
-pdm run pytest tests/unit/test_memory.py
+# Lint
+pdm run ruff check .
 ```
 
-### Linting and Formatting
+See [docs/tech-context.md#deployment](docs/tech-context.md#deployment) for detailed development setup.
 
-```bash
-# Check code style
-pdm run ruff check
+## Security
 
-# Format code automatically
-pdm run ruff format
-```
-
-### Type Checking (Optional)
-
-```bash
-pdm run mypy src/
-```
-
----
-
-## Deployment
-
-### Production Checklist
-
-Before deploying to production, ensure:
-
-- [ ] All security items in PRDv2.md Section 9 are completed
-- [ ] FileVault enabled on Mac Mini
-- [ ] macOS Firewall enabled (stealth mode)
-- [ ] `.env` has `chmod 600` permissions
-- [ ] Cloudflare Tunnel configured with WAF rules
-- [ ] Google Drive API backup configured and tested
-- [ ] All tests pass: `pdm run pytest`
-- [ ] Linting passes: `pdm run ruff check`
-- [ ] Health check endpoint returns healthy status
-
-### Cloudflare Tunnel Setup
-
-```bash
-# Install cloudflared
-brew install cloudflared
-
-# Create named tunnel
-cloudflared tunnel create jarvis
-
-# Configure tunnel (edit config file)
-nano ~/.cloudflared/config.yml
-
-# Run tunnel
-cloudflared tunnel run jarvis
-```
-
-For detailed setup, see PRDv2.md Section 9.
-
----
-
-## Monitoring
-
-### Health Check
-
-```bash
-curl http://localhost:8000/health
-```
-
-Expected response:
-```json
-{
-  "status": "healthy",
-  "timestamp": "2026-01-18T10:30:00Z",
-  "version": "0.1.0",
-  "dependencies": {
-    "gemini_api": "healthy",
-    "arxiv_api": "healthy",
-    "database": "healthy"
-  }
-}
-```
-
-### Metrics
-
-```bash
-# View Prometheus metrics
-curl http://localhost:8000/metrics
-
-# View cost tracking
-curl http://localhost:8000/metrics/cost
-```
-
-### Logs
-
-```bash
-# Tail logs in real-time
-tail -f jarvis.log
-
-# Filter by error level
-grep -i "ERROR" jarvis.log
-```
-
----
-
-## Troubleshooting
-
-### Common Issues
-
-**Issue: Telegram webhook not receiving messages**
-- Check Cloudflare Tunnel status: `cloudflared tunnel info`
-- Verify WAF rules allow Telegram IPs
-- Check webhook secret in `.env`
-
-**Issue: API quota exceeded**
-- Check Gemini API usage in Google Cloud Console
-- Wait for quota reset or upgrade plan
-- Monitor costs: `curl http://localhost:8000/metrics/cost`
-
-**Issue: Jobs stuck in `in_progress` status**
-- Restart service to reset jobs
-- Check logs for errors: `grep "ERROR" jarvis.log`
-- Manual retry via API: `POST /jobs/<id>/retry`
-
-For full troubleshooting guide, see PRDv2.md Section 18 (Operational Runbook).
-
----
-
-## Roadmap
-
-### MVP (Current)
-
-- [x] PRD and architecture design
-- [x] Environment setup
-- [ ] FastAPI skeleton and webhook
-- [ ] Router agent and mode selection
-- [ ] Chat Fast and Chat Thinking agents
-- [ ] Memory system with extraction
-- [ ] Deep research pipeline
-- [ ] Testing and polish
-- [ ] Docker and CI/CD
-
-### Post-MVP
-
-- [ ] Voice input (Whisper/Gemini audio)
-- [ ] Anna's Archive integration
-- [ ] Feedback system (thumbs up/down)
-- [ ] Multi-user support (optional)
-- [ ] Advanced citation export (BibTeX)
-- [ ] Memory visualization (graphs)
-- [ ] Calendar integration
-
----
-
-## Contributing
-
-This is a personal project, but contributions are welcome!
-
-### Development Workflow
-
-1. Create feature branch: `git checkout -b feature/your-feature`
-2. Make changes and commit: `git commit -m "feat: add your feature"`
-3. Push and create PR: `git push origin feature/your-feature`
-4. CI/CD will run tests and linting automatically
-
-### Coding Standards
-
-Follow guidelines in [AGENTS.md](AGENTS.md):
-- PEP 8 style
-- Type hints where possible
-- Async/await for I/O operations
-- Result objects for expected failures
-- Never log secrets
-
----
+- **Network**: No public ports, polling only (no webhook)
+- **Authentication**: Telegram user ID allowlist (silent ignore for unauthorized)
+- **Secrets**: `.env` file, never committed to git
+- **Logging**: Structured JSON with correlation IDs, secrets filtered
+- **Container**: Read-only filesystem, resource limits, no new privileges
 
 ## License
 
-MIT License - See LICENSE file for details
-
----
+MIT License - see [LICENSE](LICENSE)
 
 ## Acknowledgments
 
-Inspired by:
-- [agentfs](https://github.com/tursodatabase/agentfs) - Filesystem as agent context
-- [gpt-researcher](https://github.com/assafelovic/gpt-researcher) - Open source research agent
-- [Elicit Reports](https://elicit.com/blog/introducing-elicit-reports) - Gold standard for deep research
-
----
-
-## Support
-
-For issues, questions, or feature requests:
-- Create an issue in [docs/issues/](docs/issues/) (local issue tracking)
-- Check [PRDv2.md](docs/PRDv2.md) for requirements
-- Check [tech-context.md](docs/tech-context.md) for architecture
-
----
-
-**Built with ❤️ for personal sovereignty and AI transparency**
+- [OpenCode](https://opencode.ai) - The AI coding assistant that powers Jarvis
+- [python-telegram-bot](https://python-telegram-bot.org/) - Telegram bot framework
+- [Orbstack](https://orbstack.dev) - Fast, lightweight Docker alternative for Mac

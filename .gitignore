@@ -19,7 +19,7 @@ env/
 
 # PDM
 .pdm-build/
-*.lock
+.lock
 
 # IDE
 .vscode/
@@ -36,7 +36,10 @@ env/
 
 # Logs
 *.log
-jarvis.log*
+
+# Jarvis local state
+/.jarvis/
+/.opencode/
 
 # Temporary files
 /tmp/
@@ -75,3 +78,10 @@ docker-compose.override.yml
 .key
 .pem
 .p12
+
+# Misc
+docs/moltbot/*
+
+# Temporary planning files
+*_PLAN.md
+*_IMPLEMENTATION_PLAN.md

@@ -1,0 +1,47 @@
+services:
+  jarvis:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: jarvis
+    
+    env_file:
+      - .env
+    
+    # No ports needed for polling mode (outbound only)
+    
+    volumes:
+      # Persist sessions and database
+      - ./.jarvis:/app/.jarvis
+      - ./data:/app/data
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 512M
+        reservations:
+          cpus: '0.25'
+          memory: 128M
+    
+    restart: unless-stopped
+    
+    # Security
+    security_opt:
+      - no-new-privileges:true
+    
+    read_only: true
+    
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
+    
+    # No health check needed (outbound polling)
+    
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+        labels: "service"
+        env: "JARVIS_ENV,LOG_LEVEL"
