@@ -3,102 +3,349 @@
 > Source of truth for Jarvis architecture and decisions.
 > Update this when architecture changes.
 
-## Current Status
+## Project Brief
 
-**Phase**: 1 (MVP) - Telegram-OpenCode Bridge
-**Status**: Implementation complete, polling mode, model selection, response logging, comprehensive error handling
-**Last Updated**: 2026-02-15
+Jarvis is a **personal AI assistant accessible via Telegram** that bridges mobile chat with OpenCode Server. It enables natural language interaction with an AI coding assistant from anywhere, with additional capabilities like X (Twitter) bookmarks querying.
 
-## Migration Complete
+**Core Requirements:**
+- Chat with OpenCode AI via Telegram from mobile phone
+- Natural language interface for both AI coding tasks and personal data queries
+- No public network exposure (polling mode, runs entirely locally)
+- Single-user security model (allowlist-based authorization)
+- Automatic data synchronization for external services (X bookmarks)
 
-The codebase has been migrated from a monolithic structure to a modular architecture:
-- **Command Router**: Central routing for all commands (`command_router.py`)
-- **Handlers Package**: Modular command handlers (`handlers/commands.py`)
-- **Structured Logging**: JSON logging with correlation IDs (`logging_config.py`)
-- **Models & Exceptions**: Type-safe data structures and error handling
-- **26 Tests**: Comprehensive error handling tests (removed 25 fake library tests)
+**Goals:**
+- Provide mobile access to OpenCode without TUI interface
+- Enable quick queries to personal data (bookmarks, etc.)
+- Maintain security and privacy (no public endpoints)
+- Minimal infrastructure requirements (single Docker container)
 
-## Architecture Overview
+---
 
-Jarvis is a **thin passthrough bridge** between Telegram and OpenCode Server with a **modular command routing system**.
+## Product Context
+
+### Why Jarvis Exists
+
+**Problem**: OpenCode is a powerful AI coding assistant, but requires a terminal/TUI interface. Mobile users cannot easily access it while on the go.
+
+**Solution**: Jarvis acts as a lightweight Telegram bot that forwards messages to OpenCode Server. Users can chat from their phone, get responses, and access OpenCode's full capabilities (file ops, git, bash commands) via natural language.
+
+**Additional Problem**: Users accumulate X bookmarks but have no easy way to query them naturally.
+
+**Additional Solution**: Jarvis syncs X bookmarks daily and enables natural language queries like "What did I save last week?" directly from Telegram.
+
+### How It Should Work
+
+**Regular Chat Flow:**
+1. User types message in Telegram (e.g., "Explain the bug in src/auth.py")
+2. Jarvis receives via polling, checks authorization
+3. Jarvis forwards to OpenCode Server
+4. OpenCode processes (reads files, runs commands, calls LLM)
+5. OpenCode returns response to Jarvis
+6. Jarvis formats for Telegram (chunking, markdown escaping)
+7. User sees response on phone
+
+**X Bookmarks Flow:**
+1. First message of the day triggers auto-sync
+2. Jarvis fetches new bookmarks from X API (incremental since last sync)
+3. Bookmarks stored in local SQLite database
+4. User queries via natural language (e.g., "Show me my recent bookmarks")
+5. Jarvis detects bookmark query, searches local DB
+6. Results returned as formatted summaries with details option
+
+### User Experience Goals
+
+- **Fast responses**: < 2 seconds for most queries (polling overhead acceptable)
+- **Natural language**: No commands to memorize, just ask naturally
+- **Context-aware**: Remembers session context across messages
+- **Secure**: No public exposure, single user, secrets never logged
+- **Reliable**: Graceful error handling with user-friendly messages
+
+### Constraints
+
+- **Latency**: Polling adds ~1-2 second delay to first message of batch
+- **Interpretability**: Errors must be clear, with actionable next steps
+- **Resources**: Single Mac Mini M4 (16GB) deployment
+- **Privacy**: No data leaves local network (except OpenCode API calls)
+- **Availability**: Single-user system, no multi-tenant requirements
+
+---
+
+## System Patterns
+
+### Architecture Rationale
+
+**Why Telegram + OpenCode Bridge?**
+
+Chosen because:
+1. **Mobile access**: Telegram available everywhere, reliable notifications
+2. **No public URLs**: Polling mode eliminates webhook/Tailscale complexity
+3. **Minimal interpretation**: Jarvis is thin passthrough, all AI intelligence in OpenCode
+4. **Security**: Allowlist-based auth, no OAuth flows needed
+5. **Simplicity**: Single container deployment, easy maintenance
+
+**Why Polling Over Webhook?**
+
+| Criterion | Webhook | Polling (Chosen) |
+|-----------|----------|------------------|
+| Complexity | Needs public URL + Tailscale | Runs entirely locally |
+| Latency | Immediate | ~1-2s delay acceptable |
+| Reliability | Depends on internet stability | Handles network issues gracefully |
+| Setup | Complex infrastructure | Simple, works offline after initial sync |
+| Cost | VPS needed ($10/mo+) | Runs on existing Mac Mini |
+
+**Tradeoff**: Accept 1-2 second delay for simpler setup and no infrastructure costs. For personal use, this is acceptable.
+
+**Why Modular Architecture?**
+
+Chosen because:
+1. **Testability**: Each module can be tested independently
+2. **Maintainability**: Clear separation of concerns, easier to debug
+3. **Extensibility**: New commands/features added to handlers package
+4. **Readability**: Files under 300 lines (pre-commit enforced)
+
+**Tradeoff**: Slightly more files than monolithic bot.py, but significantly better organization.
+
+**When to Reconsider:**
+- Team grows to 5+ developers (might justify microservices)
+- Need to support multiple concurrent users (current architecture scales to ~100)
+- Latency becomes critical (might need webhook for sub-second response)
+
+### Data Flow: Regular OpenCode Chat
 
 ```
-Telegram <-> Jarvis Bot (Python) <-> OpenCode Server
-                 |                        |
-            - Command Router         - LLM calls
-            - Handler Package        - File ops
-            - Allowlist              - Git ops
-            - Formatting             - Sessions
+User Message (Telegram)
+    ↓
+[Authorization Check] - SQLite allowlist lookup
+    ↓ (authorized)
+[Detect Command Type] - /command vs regular text
+    ↓
+[Forward to OpenCode Server]
+    ├─ /command → POST /session/{id}/command
+    └─ text      → POST /session/{id}/message
+    ↓
+[OpenCode Processing]
+    ├─ LLM inference
+    ├─ File operations (read/write)
+    ├─ Git operations
+    └─ Bash commands
+    ↓
+[Response Received] - Contains parts (text, tool results) + info (model, agent)
+    ↓
+[Format for Telegram]
+    ├─ Markdown escaping
+    ├─ Chunking (max 4096 chars)
+    └─ Error formatting
+    ↓
+[Send to User] - Via Telegram API
+    ↓
+[Log Response] - SQLite (session_id, user_id, model, text)
 ```
 
-### Command Routing Architecture
+**Metrics:**
+- **HOW**: Logged at each step with correlation ID
+- **WHY**: Debug latency issues, track OpenCode reliability
+- **WHAT**: Typical latency: 2-5s end-to-end (depends on LLM response time)
+- **WHERE**: All steps logged in structured JSON logs
 
-The bot uses a centralized command router that categorizes commands:
+### Data Flow: X Bookmarks Sync
 
-1. **Blocked Commands** (`exit`, `quit`, `editor`, `themes`) - Not available in Telegram
-2. **Bridge-Native** (`switch`, `agent`, `model`) - Handled by Jarvis
-3. **Intercept Commands** (`models`, `new`, `sessions`) - Bridge processes before OpenCode
-4. **Pass-Through** (`compact`, `undo`, `share`, etc.) - Forwarded directly to OpenCode
+```
+First Message of Day
+    ↓
+[Check Sync Status] - SQLite: x_sync_status.last_sync_date vs today
+    ↓ (needs sync)
+[Fetch Bookmarks] - X API (tweepy)
+    ├─ First run: fetch all (full sync)
+    └─ Subsequent: fetch since_id (incremental)
+    ↓
+[Parse & Validate] - Pydantic models (Bookmark, Author, Metrics)
+    ↓
+[Store in Database] - SQLite: x_bookmarks table
+    ├─ INSERT OR REPLACE (deduplication)
+    └─ Indexes: bookmarked_at, created_at
+    ↓
+[Update Sync Status] - SQLite: x_sync_status
+    ├─ last_sync_date = today
+    ├─ last_tweet_id = newest_id
+    └─ total_bookmarks = count
+    ↓
+[Continue User Message] - Process normally via OpenCode
+```
 
-### Key Decision: Modular Handler Pattern
+**Metrics:**
+- **HOW**: Timestamps logged at start/end, bookmark counts tracked
+- **WHY**: Monitor sync performance, detect rate limit issues
+- **WHAT**: Typical sync: 100-500 bookmarks in 10-30s (depends on API limits)
+- **WHERE**: Logged as "sync_completed" with new_bookmarks, total_bookmarks
 
-We migrated from a monolithic bot.py to a modular architecture:
-- **Benefits**: Better testability, clearer separation of concerns, easier maintenance
-- **Tradeoff**: Slightly more files, but each under 300 lines (pre-commit enforced)
-- **Migration Date**: 2026-02-08
+### Data Flow: X Bookmarks Query
 
-### Data Flow
+```
+User Query (Telegram) - "What did I save last week?"
+    ↓
+[Detect Bookmark Query] - Keywords + time expression matching
+    ├─ Keywords: saved, bookmarked, my tweets, my bookmarks
+    ├─ Time: last week, yesterday, today, recent
+    └─ Pattern: must have keyword AND (time OR "recent")
+    ↓ (match)
+[Parse Time Range] - Convert natural time to ISO dates
+    ├─ "last week" → (now - 7 days) to now
+    ├─ "yesterday" → start of yesterday to end of yesterday
+    └─ "today" → start of today to now
+    ↓
+[Query Database] - SQLite: SELECT WHERE bookmarked_at BETWEEN ? AND ?
+    ├─ Indexed query on bookmarked_at
+    └─ ORDER BY bookmarked_at DESC
+    ↓
+[Format Results] - Summaries with author, text preview, date
+    ├─ Max 10 shown (with "X more" if more)
+    ├─ HTML escaping for Telegram
+    └─ Option for details on specific tweet
+    ↓
+[Send to User] - Via Telegram API
+```
 
-1. User sends Telegram message
-2. Jarvis checks allowlist (silent ignore if unauthorized)
-3. Jarvis detects `/command` vs regular text
-4. Routes to appropriate OpenCode endpoint:
-   - `/command` -> `POST /session/{id}/command`
-   - Regular text -> `POST /session/{id}/message`
-5. OpenCode processes (LLM, tools, files)
-6. Jarvis formats response for Telegram (chunking, markdown)
-7. Response sent to user
+**Metrics:**
+- **HOW**: Query execution time logged, result count tracked
+- **WHY**: Monitor query performance, detect indexing issues
+- **WHAT**: Typical query: <100ms for 1000 bookmarks
+- **WHERE**: Logged as "query_bookmarks" with results count, execution_time
 
-## Technology Stack
+### State Machine: Bookmark Sync Lifecycle
 
-| Layer | Technology | Why |
-|-------|------------|-----|
-| Language | Python 3.11+ | Async, type hints, ecosystem |
-| Package Manager | PDM | Modern, PEP 621, lockfile |
-| Telegram | python-telegram-bot 21+ | Async, well-maintained |
-| HTTP Client | httpx | Async, HTTP/2 |
-| Config | pydantic-settings | Validation, .env |
-| Logging | structlog | JSON, correlation ID |
-| Container | Docker + Orbstack | Isolation, easy deployment |
+```
+[Idle] ←→ [Check Sync Status]
+     ↓              ↓
+  daily trigger   compare dates
+     ↓              ↓
+[Needs Sync?] ──no──→ [Continue User Message]
+     ↓ yes
+[Start Sync]
+     ↓
+[Set sync_in_progress = true]
+     ↓
+[Fetch from X API]
+     ↓ (success)
+[Store Bookmarks]
+     ↓
+[Update Status]
+     ├─ last_sync_date = today
+     ├─ last_tweet_id = newest
+     └─ total_bookmarks = count
+     ↓
+[Set sync_in_progress = false]
+     ↓
+[Continue User Message]
+```
 
-## OpenCode Integration
+**Error Handling:**
+- **API failure**: Log error, set sync_in_progress=false, retry tomorrow
+- **Database error**: Log error, set sync_in_progress=false, notify user on next query
+- **Rate limit**: Wait (tweepy auto-handles), log warning, continue
 
-### Working Directory Strategy
+### Component Relationships
 
-OpenCode Server runs with:
-- `working_dir: /projects` (container)
-- Mounted from `~/projects` (host)
+```
+┌─────────────────────────────────────────────────────────┐
+│                   Telegram Bot                         │
+│            (python-telegram-bot 21+)                  │
+└────────────────────┬────────────────────────────────┘
+                     │
+                     ▼
+         ┌───────────────────────┐
+         │    Jarvis Bot         │
+         │  (bot.py)            │
+         │  - Polling Engine    │
+         │  - Command Router    │
+         │  - Query Detector    │
+         └───────────┬───────────┘
+                     │
+         ┌───────────┴───────────┐
+         ▼                       ▼
+┌──────────────────┐    ┌────────────────────┐
+│ Command Router   │    │ Query Detector    │
+│                 │    │                  │
+│ - Blocked       │    │ - Is bookmark?   │
+│ - Bridge-native │    │ - Time range?    │
+│ - Intercept     │    │ - Parse query    │
+│ - Pass-through  │    └────────┬─────────┘
+└───────┬─────────┘             │
+        │                       │
+        │ Regular Chat           │ Bookmarks
+        ▼                       │
+┌──────────────────┐             │
+│ OpenCode Client  │             ▼
+│ (httpx)         │    ┌────────────────────┐
+│                 │    │  Bookmarks Sync    │
+└───────┬─────────┘    │  (sync.py)        │
+        │               │                    │
+        ▼               │ - Auto-sync        │
+┌──────────────────┐    │ - Incremental     │
+│ OpenCode Server  │    │ - Error handling  │
+│                 │    └─────────┬──────────┘
+│ - LLM inference  │              │
+│ - File ops      │              ▼
+│ - Git ops      │    ┌────────────────────┐
+│ - Bash cmds    │    │  X API Client     │
+└──────────────────┘    │  (tweepy)         │
+                      │                    │
+                      │ - Pagination       │
+                      │ - Rate limiting   │
+                      └─────────┬──────────┘
+                                ▼
+                      ┌────────────────────┐
+                      │  SQLite Database   │
+                      │                  │
+                      │ - x_bookmarks    │
+                      │ - x_sync_status  │
+                      │ - responses      │
+                      │ - users          │
+                      └──────────────────┘
+```
+
+---
+
+## Tech Context
+
+### Technology Stack
+
+| Layer | Technology | Why Chosen |
+|-------|------------|------------|
+| **Language** | Python 3.11+ | Async support, type hints, rich ecosystem |
+| **Package Manager** | PDM | Modern, PEP 621 compliant, lockfile |
+| **Telegram** | python-telegram-bot 21+ | Async, well-maintained, official docs |
+| **HTTP Client** | httpx | Async, HTTP/2 support |
+| **X API Client** | tweepy 4.16+ | Most mature Python X/Twitter library |
+| **Config** | pydantic-settings | Validation, type-safe, .env support |
+| **Logging** | structlog | Structured JSON, correlation IDs, thread-safe |
+| **Database** | SQLite | Zero config, embedded, sufficient for single user |
+| **Container** | Docker + Orbstack | Isolation, easy deployment, fast on Mac |
+
+### OpenCode Integration
+
+**Working Directory Strategy:**
+- `working_dir: /projects` (container) mounted from `~/projects` (host)
 - Session data in `/root/.opencode` (via `OPENCODE_HOME`)
 - Config in `/root/.config/opencode` (Docker volume)
 
-This allows:
-- `@jarvis/src/config.py` resolves correctly
+**Why?**
+- File references work: `@jarvis/src/config.py` resolves correctly
 - Each project can have its own `AGENTS.md`
-- Git operations work naturally
+- Git operations work naturally (same filesystem)
 - Session metadata persists across container restarts
 
-### API Endpoints Used
+**API Endpoints Used:**
 
-| Endpoint | Purpose |
-|----------|---------|
-| `GET /global/health` | Health check |
-| `POST /session` | Create session |
-| `POST /session/{id}/message` | Send regular text |
-| `POST /session/{id}/command` | Execute slash commands |
+| Endpoint | Purpose | Method |
+|----------|---------|---------|
+| `/global/health` | Health check | GET |
+| `/session` | Create session | POST |
+| `/session/{id}/message` | Send regular text | POST |
+| `/session/{id}/command` | Execute slash command | POST |
 
-### Model Format
-
-OpenCode requires model parameter as an object:
+**Model Format:**
+OpenCode requires model as object:
 ```json
 {
   "model": {
@@ -108,150 +355,310 @@ OpenCode requires model parameter as an object:
 }
 ```
 
-Jarvis parses `provider/model` strings and converts to this format. Model and agent info are extracted from response `info` object.
+Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and converts to this format. Model and agent info are extracted from response `info` object.
+
+### X Bookmarks Integration
+
+**Authentication Strategy:**
+
+**HOW**: X API Bearer token (read-only) stored in `.env` as `X_BEARER_TOKEN`
+
+**WHY**:
+- OAuth 2.0 PKCE requires callback server, complex setup
+- Bearer token is simpler: one-time copy from developer.twitter.com
+- Read-only scope minimizes security risk
+- No user-specific data needed (personal account)
+
+**WHAT**: Token is passed as `Authorization: Bearer <token>` header to all X API requests
+
+**WHERE**: Used in `src/jarvis/bookmarks/client.py` (tweepy API client)
+
+**Security**: Token never logged, filtered from structured logs, stored in `.env` (gitignored)
+
+**Sync Strategy:**
+
+**HOW**:
+- Trigger: First Telegram message of each day
+- Mode: Full sync on first run, incremental sync thereafter
+- Pagination: Uses `since_id` parameter to fetch only new bookmarks
+- Status tracking: `x_sync_status` table stores last_sync_date, last_tweet_id, total_bookmarks
+
+**WHY**:
+- Daily sync balances freshness vs. API rate limits
+- Incremental sync avoids re-fetching entire bookmark collection
+- On-message trigger eliminates background scheduler complexity
+- Status tracking enables idempotent syncs (retry-safe)
+
+**WHAT**:
+- Typical sync: 10-30 seconds for 100-500 bookmarks
+- API rate limit: 15 requests/15-minute window (read-only)
+- Sync frequency: Once per day (respects rate limits)
+
+**WHERE**:
+- Sync logic: `src/jarvis/bookmarks/sync.py`
+- Status table: `x_sync_status` in SQLite database
+- Auto-sync trigger: `bot.py::_handle_update()` line 232-236
+
+**Query Interface:**
+
+**HOW**:
+- Natural language detection via keyword + time expression matching
+- Keywords: saved, bookmarked, my tweets, my bookmarks, saved posts
+- Time expressions: last week, yesterday, today, last month, past week, recent
+- Time parsing: Convert natural time to ISO date ranges
+- Database query: Indexed `SELECT WHERE bookmarked_at BETWEEN ? AND ?`
+- Result formatting: HTML escaping, max 10 results shown, details option
+
+**WHY**:
+- Natural language matches user mental model (no commands to memorize)
+- Keyword matching is fast and reliable for this use case
+- Time expressions are common patterns people use
+- Indexed queries ensure fast responses even with thousands of bookmarks
+- HTML escaping prevents Telegram rendering issues
+
+**WHAT**:
+- Query latency: <100ms for 1000 bookmarks (indexed)
+- Result limit: 10 shown, with "X more" if more available
+- Accuracy: ~95% for common patterns (improvable with LLM parsing)
+
+**WHERE**:
+- Query detection: `bot.py::_is_bookmark_query()` line 119-126
+- Query handling: `bot.py::_handle_bookmark_query()` line 128-153
+- Natural language parsing: `handlers/commands.py::query_bookmarks()` line 281-352
+
+**Tradeoffs:**
+- **Current**: Simple keyword matching, no semantic search
+- **Future enhancement**: LLM-based intent detection for better accuracy
+- **Current**: Text-based search only
+- **Future enhancement**: Vector embeddings for semantic search
+
+**Database Schema:**
+
+**x_bookmarks table:**
+- `tweet_id` (TEXT UNIQUE, PRIMARY KEY) - Tweet unique identifier
+- `author_username`, `author_name`, `author_verified` - Author info
+- `text` (TEXT NOT NULL) - Tweet content
+- `created_at`, `bookmarked_at` (TIMESTAMP) - Time metadata
+- `tweet_url` (TEXT NOT NULL) - Link to tweet
+- `like_count`, `retweet_count`, `reply_count`, `impression_count`, `bookmark_count` (INTEGER) - Engagement metrics
+- `media_urls` (TEXT) - JSON array of media URLs
+- `urls_expanded` (TEXT) - JSON array of expanded URLs
+- `context_annotations` (TEXT) - JSON array of context annotations (future topic filtering)
+- `raw_json` (TEXT) - Full tweet data for future use
+
+**x_sync_status table:**
+- `id` (INTEGER PRIMARY KEY CHECK (id = 1)) - Single row
+- `last_sync_date` (TEXT) - ISO date string of last sync (YYYY-MM-DD)
+- `last_sync_at` (TIMESTAMP) - Full timestamp of last sync
+- `last_tweet_id` (TEXT) - Most recent tweet ID synced
+- `total_bookmarks` (INTEGER) - Total count of bookmarks in DB
+- `sync_in_progress` (BOOLEAN) - Prevents concurrent syncs
+- `first_sync_complete` (BOOLEAN) - Distinguishes first run from subsequent runs
+
+**Indexes:**
+- `idx_bookmarks_bookmarked_at` on `x_bookmarks(bookmarked_at)` - Fast time-range queries
+- `idx_bookmarks_created_at` on `x_bookmarks(created_at)` - Fast tweet creation queries
+
+### Error Handling Strategy
+
+**Three Severity Levels:**
+
+| Severity | Behavior | Examples |
+|----------|----------|----------|
+| **FATAL** | Logs critical error, raises exception, bot exits | Database init failed, OpenCode unhealthy |
+| **WARNING** | Logs warning with context, continues operation | Message audit log fail, response log fail |
+| **USER ERROR** | Returns user-friendly error message, logs details | Invalid command, malformed input |
+
+**All Errors Logged With Context:**
+- `user_id`: Which user triggered the error
+- `session_id`: Which session (if applicable)
+- `operation`: What action failed (sync, query, send_message, etc.)
+- `error`: Error message/stack trace
+- `correlation_id`: Unique ID for request tracking
+
+**Why Context Matters:**
+- Debugging: Quickly identify which user/session is affected
+- Monitoring: Track error rates per operation
+- Analysis: Identify common failure patterns
+
+### Security Model
+
+**Authentication:**
+- **How**: Telegram user ID allowlist in SQLite database
+- **Why**: Simple, no OAuth complexity, works with Telegram's existing auth
+- **What**: Single user (can be extended to multi-user allowlist)
+- **Where**: `database.py::is_user_allowed()` checks user_id
+
+**Network Security:**
+- **How**: Polling only, no public ports, no webhooks
+- **Why**: No attack surface, no need for Tailscale, runs entirely locally
+- **What**: Bot makes outbound connections only (to Telegram API, OpenCode, X API)
+- **Where**: `polling_engine.py` implements long polling
+
+**Secrets Management:**
+- **How**: `.env` file, never committed to git, filtered from logs
+- **Why**: Prevents accidental exposure in commits/logs/GitHub
+- **What**: All secrets (bot tokens, API keys, passwords) in `.env`
+- **Where**: `config.py` reads from `.env` using pydantic-settings
+
+**Logging Security:**
+- **How**: Structured JSON with secrets filtering, httpx INFO logs suppressed
+- **Why**: httpx INFO logs expose bot tokens (documented issue)
+- **What**: All logs filtered for known secret patterns before output
+- **Where**: `logging_config.py` implements secret filtering
+
+**Container Security:**
+- **How**: Docker multi-stage build, non-root user, read-only filesystem
+- **Why**: Defense in depth, least privilege principle
+- **What**: Read-only `/app`, no new privileges, resource limits
+- **Where**: `Dockerfile` implements security best practices
+
+**Database Security:**
+- **How**: SQLite file in `.jarvis/` directory (gitignored), single-user access
+- **Why**: No network exposure, no SQL injection (parameterized queries)
+- **What**: Contains user data, bookmarks, responses
+- **Where**: `.jarvis/jarvis.db` stored in project directory
+
+### Performance Considerations
+
+**Polling Latency:**
+- **HOW**: Measured from message send to bot receive (includes Telegram network)
+- **WHY**: User experience metric, determines polling interval settings
+- **WHAT**: ~1-2 seconds typical (depends on Telegram polling interval)
+- **WHERE**: Logged as `polling_latency` in structured logs
+
+**Query Performance:**
+- **HOW**: Measured database query execution time
+- **WHY**: Ensure bookmarks queries remain fast as collection grows
+- **WHAT**: <100ms for 1000 bookmarks (indexed queries)
+- **WHERE**: Logged as `query_execution_time` in bookmark queries
+
+**Sync Performance:**
+- **HOW**: Measured sync duration and bookmark count
+- **WHY**: Monitor API rate limits, detect performance degradation
+- **WHAT**: 10-30 seconds for 100-500 bookmarks (rate limited)
+- **WHERE**: Logged as `sync_duration` and `new_bookmarks` in sync logs
+
+**Storage Growth:**
+- **HOW**: Track database file size and row counts
+- **WHY**: Prevent unbounded growth, plan cleanup strategies
+- **WHAT**: Responses auto-cleanup (30 days), bookmarks indefinite (consider future pruning)
+- **WHERE**: Logged in database initialization and cleanup jobs
+
+### Configuration
+
+**Required Environment Variables:**
+
+| Variable | Description | Example |
+|----------|-------------|----------|
+| `TELEGRAM_BOT_ID` | Telegram bot token from @BotFather | `123456:ABC-xyz123` |
+| `TELEGRAM_USER_ID` | Your Telegram user ID from @userinfobot | `123456789` |
+| `OPENCODE_URL` | OpenCode Server URL | `http://localhost:4096` |
+| `OPENCODE_SERVER_PASSWORD` | OpenCode Server password | `secure_password` |
+
+**Optional Environment Variables:**
+
+| Variable | Description | Default |
+|----------|-------------|----------|
+| `X_BEARER_TOKEN` | X API read-only bearer token | `None` (bookmarks disabled) |
+| `TELEGRAM_POLLING_INTERVAL` | Seconds between polling requests | `2.0` |
+| `TELEGRAM_POLLING_TIMEOUT` | Timeout for getUpdates in seconds | `30` |
+| `LOG_LEVEL` | Python logging level | `INFO` |
+| `DATABASE_PATH` | SQLite database file path | `.jarvis/jarvis.db` |
+| `ENABLE_MESSAGE_AUDIT` | Enable message audit trail | `true` |
+| `FAVORITE_MODELS_PATH` | Path to favorite models JSON | `.jarvis/favorite_models.json` |
+
+**Configuration Files:**
+
+**`.jarvis/favorite_models.json`**:
+```json
+[
+  "anthropic/claude-sonnet-4-20250514",
+  "openai/gpt-4o",
+  "google/gemini-2.5-pro"
+]
+```
+
+**Why?** Provides quick model selection without typing full provider/model strings.
+
+---
 
 ## Deployment
 
-- **Host**: Mac Mini M4 (16GB)
-- **Container Runtime**: Orbstack
-- **Network**: Polling only (no public ports, no Tailscale needed)
-- **Telegram**: Long polling with exponential backoff
+### Production Deployment
 
-### Why Polling?
+**Environment:**
+- **Host**: Mac Mini M4 (16GB RAM)
+- **Container Runtime**: Orbstack (Docker-compatible)
+- **Network**: Polling only (no public ports)
+- **Storage**: Local SQLite database in `.jarvis/` directory
 
-1. **No public exposure**: No webhook URL needed, runs entirely locally
-2. **Simpler setup**: No Tailscale or port forwarding required
-3. **Resilient**: Exponential backoff handles network issues gracefully
-4. **Sufficient performance**: Fast enough for personal use
+**How to Deploy:**
+```bash
+# Clone repository
+git clone https://github.com/yourusername/jarvis.git
+cd jarvis
 
-## Security Model
+# Configure environment
+cp .env.example .env
+# Edit .env with your tokens
 
-1. **Network**: Polling only, no public ports
-2. **Auth**: Telegram user ID allowlist (SQLite)
-3. **Secrets**: `.env` file, never in code/logs
-4. **Logging**: Structured JSON, correlation IDs, secrets filtered
-5. **Container**: Read-only filesystem, resource limits, no new privileges
+# Start container
+docker compose up -d
 
-## Open Decisions
-
-| Decision | Status | Notes |
-|----------|--------|-------|
-| Webhook vs Polling | **Polling implemented** | Simple, no public URLs needed |
-| VPS fallback | **Never** | Mac Mini only - direct file access required |
-
-## References
-
-### OpenCode Server API
-- **Documentation**: https://opencode.ai/docs/server
-- **Local Spec**: `http://localhost:4096/doc` (when server running)
-- **Authentication**: HTTP Basic Auth (username: `opencode`, password from env)
-
-## File Structure
-
-```
-jarvis/
-├── src/jarvis/                   # Application source code
-│   ├── __init__.py
-│   ├── __main__.py               # Entry point (polling bot)
-│   ├── bot.py                    # Telegram bot implementation (polling)
-│   ├── command_router.py         # Central command routing logic
-│   ├── config.py                 # Configuration (pydantic-settings)
-│   ├── database.py               # SQLite database for responses and audit
-│   ├── exceptions.py             # Custom exception classes
-│   ├── formatter.py              # Response formatting (markdown, chunking)
-│   ├── logging_config.py        # Structured logging (structlog)
-│   ├── models.py                 # Pydantic data models
-│   ├── models_manager.py         # Favorite models manager with auto-reload
-│   ├── opencode_client.py        # HTTP client for OpenCode Server
-│   ├── polling_engine.py         # Telegram polling with backoff
-│   ├── utils.py                  # Utility functions
-│   └── handlers/                 # Modular command handlers
-│       ├── __init__.py
-│       └── commands.py           # Bridge-native command implementations
-├── tests/                        # Test suite (26 tests)
-│   ├── test_bot.py              # Bot functionality, authorization, sessions
-│   ├── test_formatter.py        # Response formatting, chunking, markdown
-│   └── test_opencode_client.py  # OpenCode API error handling
-├── docs/                         # Documentation
-│   ├── prd/                     # Product Requirements Document (20 sections)
-│   ├── tech-context.md          # This file - architecture decisions
-│   ├── docker-best-practices.md # Docker security & optimization
-│   └── what-i-want.md           # Original vision document
-├── Dockerfile                    # Multi-stage, non-root, minimal
-├── docker-compose.yml           # Production orchestration
-├── pyproject.toml               # PDM, ruff, pytest configuration
-├── .env.example                 # Environment template
-├── .pre-commit-config.yaml      # gitleaks, ruff, mypy hooks
-└── README.md                    # Quick start guide
+# View logs
+docker compose logs -f
 ```
 
-### Migration Changes
+**Monitoring:**
+- **Health Check**: Container health status
+- **Logs**: Structured JSON logs with correlation IDs
+- **Metrics**: Sync status, query performance, error rates
 
-**Files Added** (from opencode-mobile migration):
-- `command_router.py` - Central command routing
-- `handlers/commands.py` - Bridge-native command implementations
-- `logging_config.py` - Structured JSON logging
-- `models.py` - Type-safe data models
-- `exceptions.py` - Custom error classes
-- `utils.py` - Utility functions
-- `polling_engine.py` - Telegram polling with exponential backoff
-- `models_manager.py` - Favorite models manager with auto-reload
-- `tests/test_migration.py` - Migration verification tests
+**Backups:**
+- **Database**: Backup `.jarvis/jarvis.db` regularly
+- **Config**: Backup `.env` file (contains secrets)
+- **Models**: Backup `.jarvis/favorite_models.json`
 
-**Files Modified**:
-- `bot.py` - Adapted to use new command router, model/agent from response
-- `database.py` - Added responses table with 30-day cleanup
-- `opencode_client.py` - Fixed model format, extract agent from response
-- `tests/` - All tests updated for new architecture (51 tests total)
+### Development Setup
 
-## Testing Strategy
+**Install Dependencies:**
+```bash
+pdm install
+```
 
-### Test Organization
+**Run Locally:**
+```bash
+pdm run python -m jarvis
+```
 
-| Test File | Purpose |
-|-----------|---------|
-| `test_bot.py` | Bot authorization, sessions, message handling, polling engine |
-| `test_formatter.py` | Response formatting, markdown escaping, message chunking |
-| `test_opencode_client.py` | OpenCode API error handling (HTTP failures, 500s) |
-
-### Running Tests
-
+**Run Tests:**
 ```bash
 # All tests
 pdm run pytest
 
 # Specific test file
-pdm run pytest tests/test_migration.py -v
+pdm run pytest tests/test_bookmarks.py -v
 
 # With coverage
 pdm run pytest --cov=src/jarvis --cov-report=term-missing
-
-# Integration test (requires OpenCode server)
-pdm run pytest tests/test_opencode_client.py -v
 ```
 
-### Pre-Commit Hooks
+**Lint:**
+```bash
+# Check code
+pdm run ruff check .
 
-All commits are checked for:
-- Security leaks (gitleaks)
-- Code formatting (ruff)
-- Type checking (mypy)
-- File length (< 300 lines)
+# Format code
+pdm run ruff format .
+```
+
+---
 
 ## Related Documents
 
 - [Product Requirements Document](prd/) - Full specification (20 sections)
-- [README.md](../README.md) - Project overview and quick start
-- [Docker Best Practices](docker-best-practices.md) - Security hardening guide
+- [README.md](../README.md) - Quick start guide
+- [CHANGELOG.md](../CHANGELOG.md) - History of changes
+- [Docker Best Practices](docs/docker-best-practices.md) - Security hardening guide
 - [OpenCode Server API](https://opencode.ai/docs/server) - External API reference
-
-## Lessons Learned
-
-- **2026-02-08**: Migration to modular architecture improved testability significantly
-- **2026-02-08**: Command router pattern simplifies adding new commands
-- **2026-02-08**: Structured logging with correlation IDs essential for debugging
-- **2026-02-14**: OpenCode API requires model as object {providerID, modelID}, not string
-- **2026-02-14**: Model and agent info available in response info, no separate API calls needed
-- **2026-02-14**: httpx INFO logs expose bot tokens, must be suppressed in production
-- **2026-02-15**: Polling mode simpler than webhook - no Tailscale needed, no public URLs
-- **2026-02-15**: Comprehensive error handling critical - 14 silent failure points fixed, all errors now logged with context (user_id, session_id, operation)

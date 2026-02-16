@@ -26,6 +26,7 @@ mode (no public URLs needed) and provides a seamless chat experience from your p
 - Message audit trail
 - Auto-cleanup of old responses (30 days)
 - Comprehensive error handling with detailed diagnostics
+- **X bookmarks sync and query**: Automatic daily sync, natural language queries
 
 **Phase 2 (Planned)**:
 - URL summarization (X threads, Substack articles)
@@ -71,6 +72,60 @@ mode (no public URLs needed) and provides a seamless chat experience from your p
 
 6. Message your bot on Telegram!
 
+## X Bookmarks Feature
+
+Jarvis automatically syncs your X (Twitter) bookmarks and lets you query them naturally.
+
+### Setup X Bookmarks
+
+1. Get X API Bearer token:
+   - Go to [developer.twitter.com](https://developer.twitter.com)
+   - Create a free developer account
+   - Create a project and app
+   - Copy the "Bearer Token" (read-only scope)
+
+2. Add token to `.env`:
+   ```bash
+   X_BEARER_TOKEN=your_bearer_token_here
+   ```
+
+3. Restart Jarvis:
+   ```bash
+   docker compose restart
+   ```
+
+### How It Works
+
+- **Auto-sync**: Syncs automatically on first message of each day
+- **Incremental**: Only fetches new bookmarks since last sync
+- **Local storage**: All bookmarks stored in SQLite database
+- **Natural language queries**: Ask in plain English
+
+### Query Examples
+
+Query your bookmarks with natural language:
+
+```
+What did I save last week?
+Show me my recent bookmarks
+My bookmarks from yesterday
+What did I bookmark about AI?
+Saved posts from last month
+```
+
+### What You Can Ask
+
+- **Time ranges**: last week, yesterday, today, last month, recent
+- **Keywords**: saved, bookmarked, my tweets, my bookmarks, saved posts
+- **Topics**: "What did I save about Python?" (simple text search for now)
+
+### Limitations
+
+- Sync happens once per day (not real-time)
+- Query results show max 10 bookmarks at a time
+- Topic search is text-based (semantic search coming soon)
+- Bookmarks stored indefinitely (no automatic cleanup)
+
 ## Architecture
 
 ```
@@ -108,6 +163,23 @@ All errors are logged with structured context (user_id, session_id, operation) f
 
 See `.env.example` for all configuration options.
 
+### X Bookmarks Configuration
+
+| Variable | Description | Example |
+|----------|-------------|----------|
+| `X_BEARER_TOKEN` | X API read-only bearer token (optional) | `AAAAAAAA...` |
+
+**Get your token:**
+1. Go to [developer.twitter.com](https://developer.twitter.com)
+2. Create a free developer account
+3. Create a project and app
+4. Copy the "Bearer Token" (read-only scope)
+
+**Why read-only?**
+- Bookmarks are public to you anyway
+- No write access means no accidental tweets/deletes
+- Safer than full OAuth with write permissions
+
 ### Polling Configuration
 
 Jarvis uses long polling - it continuously checks Telegram for new messages:
@@ -141,6 +213,8 @@ SQLite database at `.jarvis/jarvis.db` stores:
 - Message audit trail
 - Response logs with model info
 - User states (e.g., awaiting model selection)
+- X bookmarks (tweets, authors, metrics, URLs)
+- X sync status (last sync date, total count, last tweet ID)
 
 ## Commands
 
@@ -183,6 +257,18 @@ These are processed by Jarvis:
 | `!favmodels` | Same as `/models` |
 | `!<cmd>` | Forward any command to OpenCode |
 
+### X Bookmarks Queries (Natural Language)
+
+No commands needed - just ask naturally:
+
+| Query | Description |
+|--------|-------------|
+| "What did I save last week?" | Bookmarks from past 7 days |
+| "Show me my recent bookmarks" | Recent bookmarks |
+| "My bookmarks from yesterday" | Bookmarks from yesterday |
+| "What did I bookmark about AI?" | Bookmarks mentioning AI |
+| "Saved posts from last month" | Bookmarks from past 30 days |
+
 ## Development
 
 ```bash
@@ -216,6 +302,9 @@ pdm run pytest tests/test_bot.py -v
 
 # Test response formatting
 pdm run pytest tests/test_formatter.py -v
+
+# Test bookmarks functionality
+pdm run pytest tests/test_bookmarks.py -v
 ```
 
 ### 3. Test with Live OpenCode Server
@@ -258,11 +347,13 @@ After starting with `docker compose up -d`:
 2. Reply with model number to set your preference
 3. Send a regular message - uses your selected model
 4. Try `/compact` - compacts conversation
+5. Test bookmarks (if configured): "What did I save last week?"
 
 ## Documentation
 
 - [Product Requirements Document](docs/prd/) - Full specification (20 sections)
-- [Technical Context](docs/tech-context.md) - Architecture decisions, error handling strategy
+- [Technical Context](docs/tech-context.md) - Architecture decisions, data flows, system patterns
+- [CHANGELOG.md](CHANGELOG.md) - History of changes and new features
 
 ## Security
 
