@@ -72,6 +72,12 @@ class Settings(BaseSettings):
         description="Environment name (development, production)",
     )
 
+    # X (Twitter) API settings
+    x_bearer_token: str | None = Field(
+        default=None,
+        description="X API Bearer token (read-only, from developer.twitter.com)",
+    )
+
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:

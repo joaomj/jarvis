@@ -1,0 +1,222 @@
+"""X API client for bookmarks.
+
+Simplified version using X Bearer token (read-only).
+"""
+
+import contextlib
+from datetime import datetime
+from typing import Any
+
+import httpx
+
+from jarvis.bookmarks.models import Author, Bookmark, TweetMetrics
+from jarvis.logging_config import get_logger
+
+logger = get_logger(__name__)
+
+
+class XAPIClient:
+    """X API client for bookmarks using Bearer token."""
+
+    def __init__(self, access_token: str):
+        """Initialize X API client.
+
+        Args:
+            access_token: Bearer token from .env.
+        """
+        self.access_token = access_token
+        self.base_url = "https://api.twitter.com/2"
+        self.client = httpx.AsyncClient(
+            headers={
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json",
+            },
+            timeout=30.0,
+        )
+        logger.info("x_client_initialized")
+
+    async def close(self) -> None:
+        """Close HTTP client."""
+        await self.client.aclose()
+        logger.info("x_client_closed")
+
+    async def get_bookmarks(
+        self,
+        since_id: str | None = None,
+        pagination_token: str | None = None,
+        max_results: int = 100,
+    ) -> dict[str, Any]:
+        """Get user bookmarks from X API.
+
+        Args:
+            since_id: Only return bookmarks with ID greater than this.
+            pagination_token: Token for next page.
+            max_results: Number of bookmarks to fetch per request (max 100).
+
+        Returns:
+            API response JSON.
+        """
+        params = {
+            "max_results": min(max_results, 100),
+            "tweet.fields": "created_at,public_metrics,author_id,entities,context_annotations",
+            "user.fields": "username,name,verified",
+            "expansions": "author_id",
+        }
+
+        if since_id:
+            params["since_id"] = since_id
+        if pagination_token:
+            params["pagination_token"] = pagination_token
+
+        try:
+            response = await self.client.get(f"{self.base_url}/users/me/bookmarks", params=params)
+            response.raise_for_status()
+            data = response.json()
+            logger.info("bookmarks_page_fetched", count=data.get("meta", {}).get("result_count", 0))
+            return data
+        except httpx.HTTPStatusError as e:
+            logger.error("bookmarks_fetch_failed", status_code=e.response.status_code, error=str(e))
+            raise
+        except httpx.RequestError as e:
+            logger.error("bookmarks_fetch_error", error=str(e))
+            raise
+
+    def _parse_tweet_metrics(self, metrics: dict[str, Any]) -> TweetMetrics:
+        """Parse tweet metrics from API response.
+
+        Args:
+            metrics: Public metrics from API.
+
+        Returns:
+            TweetMetrics model.
+        """
+        return TweetMetrics(
+            like_count=metrics.get("like_count", 0),
+            retweet_count=metrics.get("retweet_count", 0),
+            reply_count=metrics.get("reply_count", 0),
+            impression_count=metrics.get("impression_count", 0),
+            bookmark_count=metrics.get("bookmark_count", 0),
+        )
+
+    def _parse_author(self, user_data: dict[str, Any]) -> Author:
+        """Parse author data from API response.
+
+        Args:
+            user_data: User data from API.
+
+        Returns:
+            Author model.
+        """
+        return Author(
+            username=user_data.get("username", ""),
+            name=user_data.get("name", ""),
+            verified=user_data.get("verified", False),
+        )
+
+    def parse_bookmark(self, tweet_data: dict[str, Any], users: dict[str, dict]) -> Bookmark:
+        """Parse bookmark data from API response.
+
+        Args:
+            tweet_data: Tweet data from API.
+            users: Dictionary mapping user IDs to user data.
+
+        Returns:
+            Bookmark model.
+        """
+        tweet_id = tweet_data.get("id", "")
+        author_id = tweet_data.get("author_id", "")
+        author_data = users.get(author_id, {})
+        author = self._parse_author(author_data)
+
+        metrics = TweetMetrics()
+        if "public_metrics" in tweet_data:
+            metrics = self._parse_tweet_metrics(tweet_data["public_metrics"])
+
+        media_urls = []
+        urls_expanded = []
+
+        if "entities" in tweet_data:
+            entities = tweet_data["entities"]
+            if "media" in entities:
+                media_urls = [m.get("media_url", "") for m in entities["media"]]
+            if "urls" in entities:
+                urls_expanded = [u.get("expanded_url", "") for u in entities["urls"]]
+
+        created_at = None
+        if "created_at" in tweet_data:
+            with contextlib.suppress(ValueError):
+                created_at = datetime.fromisoformat(tweet_data["created_at"].replace("Z", "+00:00"))
+
+        text = tweet_data.get("text", "")
+        # Note: bookmarks API v2 doesn't return note_tweet yet in standard fields
+        # but we keep the structure for compatibility.
+
+        return Bookmark(
+            tweet_id=tweet_id,
+            author=author,
+            text=text,
+            note_text=None,
+            created_at=created_at,
+            tweet_url=f"https://twitter.com/{author.username}/status/{tweet_id}",
+            metrics=metrics,
+            media_urls=media_urls,
+            urls_expanded=urls_expanded,
+            context_annotations=tweet_data.get("context_annotations", []),
+            raw_json=tweet_data,
+        )
+
+    async def get_all_bookmarks(
+        self,
+        since_id: str | None = None,
+    ) -> tuple[list[Bookmark], str | None]:
+        """Get all bookmarks with pagination.
+
+        Args:
+            since_id: Only return bookmarks with ID greater than this.
+
+        Returns:
+            Tuple of (bookmarks list, last tweet ID).
+        """
+        all_bookmarks: list[Bookmark] = []
+        last_tweet_id = None
+        pagination_token = None
+
+        while True:
+            try:
+                data = await self.get_bookmarks(
+                    since_id=since_id,
+                    pagination_token=pagination_token
+                )
+
+                tweet_list = data.get("data", [])
+                if not tweet_list:
+                    break
+
+                users_by_id = {}
+                if "includes" in data and "users" in data["includes"]:
+                    users_by_id = {u["id"]: u for u in data["includes"]["users"]}
+
+                for tweet_data in tweet_list:
+                    try:
+                        bookmark = self.parse_bookmark(tweet_data, users_by_id)
+                        all_bookmarks.append(bookmark)
+                        if not last_tweet_id or int(bookmark.tweet_id) > int(last_tweet_id):
+                            last_tweet_id = bookmark.tweet_id
+                    except Exception as e:
+                        logger.warning(
+                            "bookmark_parse_failed",
+                            tweet_id=tweet_data.get("id"),
+                            error=str(e),
+                        )
+
+                meta = data.get("meta", {})
+                pagination_token = meta.get("next_token")
+                if not pagination_token:
+                    break
+
+            except Exception as e:
+                logger.error("bookmarks_pagination_failed", error=str(e), exc_info=True)
+                break
+
+        logger.info("all_bookmarks_fetched", total=len(all_bookmarks))
+        return all_bookmarks, last_tweet_id

@@ -4,20 +4,42 @@ Thin passthrough bridge between Telegram and OpenCode Server.
 """
 
 import html
+from datetime import date
 from typing import Any
 
 from telegram import Update
 from telegram.ext import Application
 
+from jarvis.bookmarks.sync import BookmarkSync
 from jarvis.config import Settings
 from jarvis.database import Database
 from jarvis.formatter import ResponseFormatter
+from jarvis.handlers.commands import query_bookmarks
 from jarvis.logging_config import get_logger
 from jarvis.models_manager import ModelsManager
 from jarvis.opencode_client import OpenCodeClient, OpenCodeError
 from jarvis.polling_engine import PollingEngine
 
 logger = get_logger(__name__)
+
+BOOKMARK_KEYWORDS = {
+    "saved",
+    "bookmarked",
+    "my tweets",
+    "my bookmarks",
+    "saved posts",
+    "save",
+}
+
+TIME_EXPRESSIONS = {
+    "last week",
+    "past week",
+    "last month",
+    "past month",
+    "yesterday",
+    "today",
+    "recent",
+}
 
 
 class JarvisBot:
@@ -89,6 +111,42 @@ class JarvisBot:
         """Check if user is authorized."""
         return self.db.is_user_allowed(user_id)
 
+    def _is_bookmark_query(self, text: str) -> bool:
+        """Check if text is a bookmark query.
+
+        Args:
+            text: Message text to check.
+
+        Returns:
+            True if text contains bookmark keywords and time expressions.
+        """
+        text_lower = text.lower()
+        has_bookmark_keyword = any(keyword in text_lower for keyword in BOOKMARK_KEYWORDS)
+        has_time_expression = any(expr in text_lower for expr in TIME_EXPRESSIONS)
+        return has_bookmark_keyword and (has_time_expression or "recent" in text_lower)
+
+    async def _handle_bookmark_query(self, update: Update, text: str) -> bool:
+        """Handle bookmark query.
+
+        Args:
+            update: Telegram update.
+            text: Query text.
+
+        Returns:
+            True if handled, False otherwise.
+        """
+        msg = update.effective_message
+        if msg is None:
+            return False
+
+        if not self.settings.x_bearer_token:
+            await msg.reply_text("📚 Bookmarks not configured. Set X_BEARER_TOKEN in .env")
+            return False
+
+        response = await query_bookmarks(text, self)
+        await msg.reply_text(response, parse_mode="HTML")
+        return True
+
     async def _get_or_create_session(self, user_id: int) -> str:
         """Find existing session by title or create new one."""
         if user_id in self.sessions:
@@ -143,6 +201,12 @@ class JarvisBot:
         if self.db.get_user_state(user_id) == "awaiting_model_selection":
             await self._handle_model_selection(update, text)
             return None
+
+        if self._is_bookmark_query(text):
+            handled = await self._handle_bookmark_query(update, text)
+            if handled:
+                return None
+
         if not self.opencode:
             raise RuntimeError("OpenCode not initialized")
 
@@ -228,6 +292,13 @@ class JarvisBot:
 
         logger.info("message_received", user_id=user_id, text=text[:50])
 
+        # Trigger bookmark sync on first message of the day
+        if self.settings.x_bearer_token and self._should_sync():
+            try:
+                await self._run_bookmark_sync()
+            except Exception as e:
+                logger.error("auto_sync_failed", error=str(e))
+
         try:
             session_id = await self._get_or_create_session(user_id)
             result = await self._process_input(update, user_id, session_id, text)
@@ -261,6 +332,30 @@ class JarvisBot:
         except Exception as e:
             logger.error("handler_error", error=str(e), exc_info=True)
             await self._handle_error(update, f"Unexpected error: {str(e)[:200]}")
+
+    def _should_sync(self) -> bool:
+        """Check if we should sync bookmarks today."""
+        today = date.today().isoformat()
+        sync_status = self.db.get_sync_status()
+        return not (sync_status and sync_status.get("last_sync_date") == today)
+
+    async def _run_bookmark_sync(self) -> None:
+        """Run bookmark sync."""
+        if not self.settings.x_bearer_token:
+            return
+
+        logger.info("starting_auto_sync")
+        sync = BookmarkSync(self.db, self.settings.x_bearer_token)
+
+        # Check if first sync ever
+        sync_status = self.db.get_sync_status()
+        is_first = not sync_status or not sync_status.get("first_sync_complete")
+
+        result = await sync.sync_bookmarks(full_sync=is_first)
+
+        if result.get("status") == "success":
+            self.db.update_sync_status(last_sync_date=date.today().isoformat())
+            logger.info("auto_sync_complete", new=result.get("new_bookmarks"))
 
     async def _start_model_selection(self, update: Update, user_id: int) -> None:
         """Start model selection flow.

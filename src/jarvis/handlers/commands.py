@@ -4,12 +4,16 @@ Handles bridge-native commands that OpenCode doesn't have direct API for.
 """
 
 import html
+from datetime import datetime, timedelta
 from typing import TYPE_CHECKING
 
 from jarvis.logging_config import get_logger
 
 if TYPE_CHECKING:
     from jarvis.bot import JarvisBot
+
+MAX_TEXT_LENGTH = 100
+MAX_BOOKMARKS_TO_SHOW = 10
 
 logger = get_logger("commands")
 
@@ -272,3 +276,76 @@ async def _handle_model(args: str, user_id: int, bot: "JarvisBot") -> str:
     except Exception as e:
         logger.error("_handle_model_failed", error=str(e), exc_info=True)
         return "❌ Failed to set model. Please try again."
+
+
+async def query_bookmarks(query: str, bot: "JarvisBot") -> str:
+    """Query bookmarks using natural language.
+
+    Args:
+        query: Natural language query about bookmarks.
+        bot: JarvisBot instance.
+
+    Returns:
+        Response message with bookmark summaries.
+    """
+    try:
+        query_lower = query.lower()
+
+        if "last week" in query_lower or "past week" in query_lower:
+            end_date = datetime.utcnow()
+            start_date = end_date - timedelta(days=7)
+            bookmarks = bot.db.get_bookmarks_by_time_range(
+                start_date.isoformat(),
+                end_date.isoformat(),
+            )
+            time_range = "last week"
+        elif "last month" in query_lower or "past month" in query_lower:
+            end_date = datetime.utcnow()
+            start_date = end_date - timedelta(days=30)
+            bookmarks = bot.db.get_bookmarks_by_time_range(
+                start_date.isoformat(),
+                end_date.isoformat(),
+            )
+            time_range = "last month"
+        elif "today" in query_lower:
+            end_date = datetime.utcnow()
+            start_date = end_date.replace(hour=0, minute=0, second=0, microsecond=0)
+            bookmarks = bot.db.get_bookmarks_by_time_range(
+                start_date.isoformat(),
+                end_date.isoformat(),
+            )
+            time_range = "today"
+        else:
+            sync_status = bot.db.get_sync_status()
+            if sync_status:
+                total = sync_status.get("total_bookmarks", 0)
+                return (
+                    f"📚 <b>X Bookmarks</b>\n\n"
+                    f"You have <b>{total}</b> bookmarks saved.\n\n"
+                    "Try asking:\n"
+                    "• \"What did I save in the last week?\"\n"
+                    "• \"Show me my recent bookmarks\"\n"
+                    "• \"Tell me about my AI/ML tweets\""
+                )
+            return "📚 No bookmarks synced yet. Use /x-auth to connect your X account."
+
+        if not bookmarks:
+            return f"📚 No bookmarks found in the {time_range}."
+
+        lines = [f"📚 <b>Bookmarks from the {time_range}</b> ({len(bookmarks)} total)\n"]
+
+        for i, bm in enumerate(bookmarks[:MAX_BOOKMARKS_TO_SHOW], 1):
+            author = bm["author_username"]
+            text = bm["text"][:MAX_TEXT_LENGTH] + "..." if len(bm["text"]) > MAX_TEXT_LENGTH else bm["text"]
+            lines.append(f"\n<b>{i}.</b> @{html.escape(author)}\n{html.escape(text)}")
+
+        if len(bookmarks) > MAX_BOOKMARKS_TO_SHOW:
+            lines.append(f"\n<i>... and {len(bookmarks) - MAX_BOOKMARKS_TO_SHOW} more</i>")
+
+        lines.append("\n\nReply with a number for details, or ask another question.")
+
+        return "\n".join(lines)
+
+    except Exception as e:
+        logger.error("query_bookmarks_failed", error=str(e), exc_info=True)
+        return f"❌ Failed to query bookmarks: {html.escape(str(e))}"
