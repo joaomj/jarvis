@@ -7,6 +7,7 @@ import pytest
 
 from jarvis.bookmarks.client import XAPIClient
 from jarvis.bookmarks.models import Author, Bookmark, TweetMetrics
+from jarvis.bookmarks.parser import parse_bookmark
 from jarvis.bookmarks.sync import BookmarkSync
 from jarvis.database import Database
 
@@ -265,7 +266,7 @@ class TestXAPIClient:
             }
         }
 
-        bookmark = mock_client.parse_bookmark(tweet_data, users)
+        bookmark = parse_bookmark(tweet_data, users)
 
         assert bookmark.tweet_id == "123456789"
         assert bookmark.author.username == "testuser"

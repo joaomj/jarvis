@@ -21,6 +21,10 @@ class BookmarkSync:
         db: Database,
         client_id: str,
         client_secret: str,
+        base_url: str = "https://api.twitter.com/2",
+        oauth_token_url: str = "https://api.x.com/2/oauth2/token",
+        api_timeout: float = 30.0,
+        token_refresh_buffer_seconds: int = 300,
     ):
         """Initialize bookmark sync.
 
@@ -28,9 +32,21 @@ class BookmarkSync:
             db: Database instance.
             client_id: OAuth 2.0 Client ID.
             client_secret: OAuth 2.0 Client Secret.
+            base_url: X API base URL.
+            oauth_token_url: OAuth 2.0 token endpoint URL.
+            api_timeout: Request timeout in seconds.
+            token_refresh_buffer_seconds: Seconds before expiry to refresh token.
         """
         self.db = db
-        self.client = XAPIClient(db, client_id, client_secret)
+        self.client = XAPIClient(
+            db,
+            client_id,
+            client_secret,
+            base_url=base_url,
+            oauth_token_url=oauth_token_url,
+            api_timeout=api_timeout,
+            token_refresh_buffer_seconds=token_refresh_buffer_seconds,
+        )
 
     async def sync_bookmarks(self, full_sync: bool = False) -> dict[str, Any]:
         """Sync bookmarks from X to local database.

@@ -3,19 +3,17 @@
 Supports automatic token refresh when expired.
 """
 
-import contextlib
 from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 
-from jarvis.bookmarks.models import Author, Bookmark, TweetMetrics
+from jarvis.bookmarks.models import Bookmark
+from jarvis.bookmarks.parser import parse_bookmark
 from jarvis.database import Database
 from jarvis.logging_config import get_logger
 
 logger = get_logger(__name__)
-
-TOKEN_REFRESH_BUFFER_SECONDS = 300
 
 
 class XAPIClient:
@@ -26,6 +24,10 @@ class XAPIClient:
         db: Database,
         client_id: str,
         client_secret: str,
+        base_url: str = "https://api.twitter.com/2",
+        oauth_token_url: str = "https://api.x.com/2/oauth2/token",
+        api_timeout: float = 30.0,
+        token_refresh_buffer_seconds: int = 300,
     ):
         """Initialize X API client.
 
@@ -33,12 +35,19 @@ class XAPIClient:
             db: Database instance for token storage.
             client_id: OAuth 2.0 Client ID.
             client_secret: OAuth 2.0 Client Secret.
+            base_url: X API base URL.
+            oauth_token_url: OAuth 2.0 token endpoint URL.
+            api_timeout: Request timeout in seconds.
+            token_refresh_buffer_seconds: Seconds before expiry to refresh token.
         """
         self.db = db
         self.client_id = client_id
         self.client_secret = client_secret
-        self.base_url = "https://api.twitter.com/2"
-        self.client = httpx.AsyncClient(timeout=30.0)
+        self.base_url = base_url
+        self.oauth_token_url = oauth_token_url
+        self.api_timeout = api_timeout
+        self._token_refresh_buffer = token_refresh_buffer_seconds
+        self.client = httpx.AsyncClient(timeout=api_timeout)
         self._access_token: str | None = None
         self._user_id: str | None = None
         logger.info("x_client_initialized")
@@ -60,7 +69,7 @@ class XAPIClient:
         try:
             expiry = datetime.fromisoformat(expires_at.replace("Z", "+00:00"))
             now = datetime.now(UTC)
-            buffer = TOKEN_REFRESH_BUFFER_SECONDS
+            buffer = self._token_refresh_buffer
             return (expiry - now).total_seconds() < buffer
         except (ValueError, TypeError):
             return True
@@ -75,7 +84,7 @@ class XAPIClient:
             Token response with new access_token, refresh_token, expires_in.
         """
         response = await self.client.post(
-            "https://api.x.com/2/oauth2/token",
+            self.oauth_token_url,
             data={
                 "grant_type": "refresh_token",
                 "refresh_token": refresh_token,
@@ -214,88 +223,6 @@ class XAPIClient:
             logger.error("bookmarks_fetch_error", error=str(e))
             raise
 
-    def _parse_tweet_metrics(self, metrics: dict[str, Any]) -> TweetMetrics:
-        """Parse tweet metrics from API response.
-
-        Args:
-            metrics: Public metrics from API.
-
-        Returns:
-            TweetMetrics model.
-        """
-        return TweetMetrics(
-            like_count=metrics.get("like_count", 0),
-            retweet_count=metrics.get("retweet_count", 0),
-            reply_count=metrics.get("reply_count", 0),
-            impression_count=metrics.get("impression_count", 0),
-            bookmark_count=metrics.get("bookmark_count", 0),
-        )
-
-    def _parse_author(self, user_data: dict[str, Any]) -> Author:
-        """Parse author data from API response.
-
-        Args:
-            user_data: User data from API.
-
-        Returns:
-            Author model.
-        """
-        return Author(
-            username=user_data.get("username", ""),
-            name=user_data.get("name", ""),
-            verified=user_data.get("verified", False),
-        )
-
-    def parse_bookmark(self, tweet_data: dict[str, Any], users: dict[str, dict]) -> Bookmark:
-        """Parse bookmark data from API response.
-
-        Args:
-            tweet_data: Tweet data from API.
-            users: Dictionary mapping user IDs to user data.
-
-        Returns:
-            Bookmark model.
-        """
-        tweet_id = tweet_data.get("id", "")
-        author_id = tweet_data.get("author_id", "")
-        author_data = users.get(author_id, {})
-        author = self._parse_author(author_data)
-
-        metrics = TweetMetrics()
-        if "public_metrics" in tweet_data:
-            metrics = self._parse_tweet_metrics(tweet_data["public_metrics"])
-
-        media_urls = []
-        urls_expanded = []
-
-        if "entities" in tweet_data:
-            entities = tweet_data["entities"]
-            if "media" in entities:
-                media_urls = [m.get("media_url", "") for m in entities["media"]]
-            if "urls" in entities:
-                urls_expanded = [u.get("expanded_url", "") for u in entities["urls"]]
-
-        created_at = None
-        if "created_at" in tweet_data:
-            with contextlib.suppress(ValueError):
-                created_at = datetime.fromisoformat(tweet_data["created_at"].replace("Z", "+00:00"))
-
-        text = tweet_data.get("text", "")
-
-        return Bookmark(
-            tweet_id=tweet_id,
-            author=author,
-            text=text,
-            note_text=None,
-            created_at=created_at,
-            tweet_url=f"https://twitter.com/{author.username}/status/{tweet_id}",
-            metrics=metrics,
-            media_urls=media_urls,
-            urls_expanded=urls_expanded,
-            context_annotations=tweet_data.get("context_annotations", []),
-            raw_json=tweet_data,
-        )
-
     async def get_all_bookmarks(
         self,
         since_id: str | None = None,
@@ -329,7 +256,7 @@ class XAPIClient:
 
                 for tweet_data in tweet_list:
                     try:
-                        bookmark = self.parse_bookmark(tweet_data, users_by_id)
+                        bookmark = parse_bookmark(tweet_data, users_by_id)
                         all_bookmarks.append(bookmark)
                         if not last_tweet_id or int(bookmark.tweet_id) > int(last_tweet_id):
                             last_tweet_id = bookmark.tweet_id

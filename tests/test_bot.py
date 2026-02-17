@@ -9,6 +9,7 @@ import pytest
 from jarvis.bot import JarvisBot
 from jarvis.config import Settings
 from jarvis.database import Database
+from jarvis.session_manager import SessionManager
 
 
 class TestJarvisBotPolling:
@@ -49,7 +50,7 @@ class TestJarvisBotPolling:
         """Test bot initializes with polling settings."""
         bot = JarvisBot(settings)
         assert bot.settings.telegram_user_id == 123456789
-        assert bot.sessions == {}
+        assert bot.session_manager is None  # Set during initialize()
         assert bot.polling is None
 
     @pytest.mark.asyncio
@@ -122,14 +123,14 @@ class TestJarvisBotPolling:
 
         bot = JarvisBot(settings)
         bot.opencode = mock_opencode
-        bot.sessions = {}
+        bot.session_manager = SessionManager(mock_opencode)
         bot.db.add_user(12345)
 
         result = await handle_intercept_command("new", "Test Session", 12345, bot)
 
         mock_opencode.create_session.assert_called_once_with(title="Test Session")
         assert "test-session-123" in result
-        assert bot.sessions[12345] == "test-session-123"
+        assert bot.session_manager.get_session(12345) == "test-session-123"
 
 
 class TestPollingEngine:

@@ -3,7 +3,6 @@
 Thin passthrough bridge between Telegram and OpenCode Server.
 """
 
-import html
 from datetime import date
 from typing import Any
 
@@ -14,11 +13,13 @@ from jarvis.bookmarks.sync import BookmarkSync
 from jarvis.config import Settings
 from jarvis.database import Database
 from jarvis.formatter import ResponseFormatter
-from jarvis.handlers.commands import query_bookmarks
+from jarvis.handlers.bookmarks import query_bookmarks
 from jarvis.logging_config import get_logger
+from jarvis.model_selector import ModelSelector
 from jarvis.models_manager import ModelsManager
 from jarvis.opencode_client import OpenCodeClient, OpenCodeError
 from jarvis.polling_engine import PollingEngine
+from jarvis.session_manager import SessionManager
 
 logger = get_logger(__name__)
 
@@ -50,11 +51,15 @@ class JarvisBot:
         self.settings = settings
         self.formatter = ResponseFormatter()
         self.opencode: OpenCodeClient | None = None
-        self.sessions: dict[int, str] = {}
-        self._model_preferences: dict[int, str] = {}
+        self.session_manager: SessionManager | None = None
+        self.model_selector: ModelSelector | None = None
         self.app: Application | None = None
         self.polling: PollingEngine | None = None
-        self.db = Database(settings.database_path)
+        self.db = Database(
+            settings.database_path,
+            message_content_max_length=settings.db_message_content_max_length,
+            response_cleanup_days=settings.db_response_cleanup_days,
+        )
         self.models = ModelsManager(settings.favorite_models_path)
         self._running = False
 
@@ -80,9 +85,12 @@ class JarvisBot:
 
         logger.info("opencode_connected", healthy=healthy, reason=reason)
 
+        self.session_manager = SessionManager(self.opencode)
+        self.model_selector = ModelSelector(self.db, self.models)
+
         self.db.add_user(self.settings.telegram_user_id)
 
-        deleted = self.db.cleanup_old_responses(30)
+        deleted = self.db.cleanup_old_responses()
         if deleted > 0:
             logger.info("response_cleanup_complete", deleted=deleted)
 
@@ -96,6 +104,8 @@ class JarvisBot:
             self.app,
             interval=self.settings.telegram_polling_interval,
             timeout=self.settings.telegram_polling_timeout,
+            max_backoff_level=self.settings.polling_max_backoff_level,
+            max_backoff_seconds=self.settings.polling_max_backoff_seconds,
         )
 
         logger.info("bot_application_initialized")
@@ -112,29 +122,14 @@ class JarvisBot:
         return self.db.is_user_allowed(user_id)
 
     def _is_bookmark_query(self, text: str) -> bool:
-        """Check if text is a bookmark query.
-
-        Args:
-            text: Message text to check.
-
-        Returns:
-            True if text contains bookmark keywords and time expressions.
-        """
+        """Check if text is a bookmark query."""
         text_lower = text.lower()
         has_bookmark_keyword = any(keyword in text_lower for keyword in BOOKMARK_KEYWORDS)
         has_time_expression = any(expr in text_lower for expr in TIME_EXPRESSIONS)
         return has_bookmark_keyword and (has_time_expression or "recent" in text_lower)
 
     async def _handle_bookmark_query(self, update: Update, text: str) -> bool:
-        """Handle bookmark query.
-
-        Args:
-            update: Telegram update.
-            text: Query text.
-
-        Returns:
-            True if handled, False otherwise.
-        """
+        """Handle bookmark query."""
         msg = update.effective_message
         if msg is None:
             return False
@@ -147,45 +142,6 @@ class JarvisBot:
         await msg.reply_text(response, parse_mode="HTML")
         return True
 
-    async def _get_or_create_session(self, user_id: int) -> str:
-        """Find existing session by title or create new one."""
-        if user_id in self.sessions:
-            session_id = self.sessions[user_id]
-            logger.info("session_found_in_memory", user_id=user_id, session_id=session_id)
-            return session_id
-
-        if not self.opencode:
-            raise RuntimeError("OpenCode client not initialized")
-
-        session_title = f"jarvis-user-{user_id}"
-        sessions = await self.opencode.list_sessions()
-        user_session = next(
-            (s for s in sessions if s.get("title") == session_title),
-            None
-        )
-
-        if user_session:
-            session_id = user_session["id"]
-            self.sessions[user_id] = session_id
-            logger.info("session_found_in_opencode", user_id=user_id, session_id=session_id)
-            return session_id
-
-        session_id = await self.opencode.create_session(session_title)
-        self.sessions[user_id] = session_id
-        logger.info("session_created", user_id=user_id, session_id=session_id)
-        return session_id
-
-    def _get_model_for_user(self, user_id: int) -> str | None:
-        """Get model preference for user.
-
-        Args:
-            user_id: Telegram user ID.
-
-        Returns:
-            Model ID or None (use OpenCode default).
-        """
-        return self._model_preferences.get(user_id)
-
     async def _process_input(
         self,
         update: Update,
@@ -193,13 +149,12 @@ class JarvisBot:
         session_id: str,
         text: str,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
-        """Process message text and return OpenCode response.
-
-        Returns:
-            tuple of (parts, info) or None if no response needed.
-        """
-        if self.db.get_user_state(user_id) == "awaiting_model_selection":
-            await self._handle_model_selection(update, text)
+        """Process message text and return OpenCode response."""
+        if self.model_selector and self.model_selector.is_awaiting_selection(user_id):
+            msg = update.effective_message
+            if msg:
+                response = await self.model_selector.handle_selection(user_id, text)
+                await msg.reply_text(response, parse_mode="HTML")
             return None
 
         if self._is_bookmark_query(text):
@@ -210,7 +165,7 @@ class JarvisBot:
         if not self.opencode:
             raise RuntimeError("OpenCode not initialized")
 
-        model = self._get_model_for_user(user_id)
+        model = self.model_selector.get_model_for_user(user_id) if self.model_selector else None
 
         if text.startswith("!"):
             parts = text[1:].split(maxsplit=1)
@@ -292,7 +247,6 @@ class JarvisBot:
 
         logger.info("message_received", user_id=user_id, text=text[:50])
 
-        # Trigger bookmark sync on first message of the day
         if self.settings.x_client_id and self._should_sync():
             try:
                 await self._run_bookmark_sync()
@@ -300,7 +254,10 @@ class JarvisBot:
                 logger.error("auto_sync_failed", error=str(e))
 
         try:
-            session_id = await self._get_or_create_session(user_id)
+            if not self.session_manager:
+                raise RuntimeError("Session manager not initialized")
+
+            session_id = await self.session_manager.get_or_create_session(user_id)
             result = await self._process_input(update, user_id, session_id, text)
             if result is None:
                 return
@@ -354,9 +311,12 @@ class JarvisBot:
             self.db,
             self.settings.x_client_id,
             self.settings.x_client_secret,
+            base_url=self.settings.x_api_base_url,
+            oauth_token_url=self.settings.x_oauth_token_url,
+            api_timeout=self.settings.x_api_timeout,
+            token_refresh_buffer_seconds=self.settings.x_token_refresh_buffer_seconds,
         )
 
-        # Check if first sync ever
         sync_status = self.db.get_sync_status()
         is_first = not sync_status or not sync_status.get("first_sync_complete")
 
@@ -367,73 +327,14 @@ class JarvisBot:
             logger.info("auto_sync_complete", new=result.get("new_bookmarks"))
 
     async def _start_model_selection(self, update: Update, user_id: int) -> None:
-        """Start model selection flow.
-
-        Args:
-            update: Telegram update.
-            user_id: Telegram user ID.
-        """
+        """Start model selection flow."""
         msg = update.effective_message
-        if msg is None:
-            return
-        model_count = self.models.get_count()
-        if model_count == 0:
-            await msg.reply_text("No favorite models configured in .jarvis/favorite_models.json")
-            return
-        try:
-            self.db.set_user_state(user_id, "awaiting_model_selection")
-        except Exception as e:
-            logger.error("set_user_state_failed", user_id=user_id, error=str(e))
-            await msg.reply_text("❌ Failed to start model selection. Please try again.")
-            return
-        model_list = self.models.format_telegram_list()
-        await msg.reply_text(
-            "📋 <b>Available Models</b>\n\n"
-            f"{model_list}\n\n"
-            f"Reply with number (1-{model_count}) or <code>cancel</code>",
-            parse_mode="HTML",
-        )
-
-    async def _handle_model_selection(self, update: Update, text: str) -> None:
-        """Handle model selection response.
-
-        Args:
-            update: Telegram update.
-            text: User's response text.
-        """
-        msg = update.effective_message
-        if msg is None:
-            return
-        user_id = update.effective_user.id if update.effective_user else 0
-        if self.models.is_cancel(text):
-            try:
-                self.db.clear_user_state(user_id)
-            except Exception as e:
-                logger.warning("clear_user_state_failed", user_id=user_id, error=str(e))
-            await msg.reply_text("Model selection cancelled.")
-            return
-        if not text.strip().isdigit():
-            await msg.reply_text("Please reply with a model number or cancel.")
-            return
-        selected = int(text.strip())
-        model_id = self.models.get_model_by_number(selected)
-        if model_id is None:
-            await msg.reply_text(f"Invalid selection. Choose 1-{self.models.get_count()} or cancel.")
+        if msg is None or self.model_selector is None:
             return
 
-        try:
-            self.db.clear_user_state(user_id)
-        except Exception as e:
-            logger.warning("clear_user_state_failed", user_id=user_id, error=str(e))
-
-        self._model_preferences[user_id] = model_id
-        logger.info("model_preference_set", model=model_id, user_id=user_id)
-
-        await msg.reply_text(
-            f"✅ Model set to: <code>{html.escape(model_id)}</code>\n\n"
-            "This will be used for your next message.",
-            parse_mode="HTML",
-        )
+        response = await self.model_selector.start_selection(user_id)
+        if response:
+            await msg.reply_text(response, parse_mode="HTML")
 
     async def start(self) -> None:
         """Start bot with polling."""

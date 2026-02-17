@@ -85,6 +85,52 @@ class Settings(BaseSettings):
         default=None,
         description="X OAuth 2.0 Client Secret from Developer Console",
     )
+    x_api_base_url: str = Field(
+        default="https://api.twitter.com/2",
+        description="X API base URL",
+    )
+    x_oauth_token_url: str = Field(
+        default="https://api.x.com/2/oauth2/token",
+        description="X OAuth 2.0 token endpoint URL",
+    )
+    x_api_timeout: float = Field(
+        default=30.0,
+        description="X API request timeout in seconds",
+    )
+    x_token_refresh_buffer_seconds: int = Field(
+        default=300,
+        description="Seconds before expiry to refresh token",
+    )
+
+    # Database limits
+    db_message_content_max_length: int = Field(
+        default=1000,
+        description="Max characters to store per message in audit log",
+    )
+    db_response_cleanup_days: int = Field(
+        default=30,
+        description="Days to keep responses before cleanup",
+    )
+
+    # Polling settings
+    polling_max_backoff_level: int = Field(
+        default=6,
+        description="Max exponential backoff level (~64s max delay)",
+    )
+    polling_max_backoff_seconds: int = Field(
+        default=60,
+        description="Cap for backoff delay in seconds",
+    )
+
+    # Bookmarks display
+    bookmarks_max_display_count: int = Field(
+        default=10,
+        description="Max bookmarks to show in query results",
+    )
+    bookmarks_text_preview_length: int = Field(
+        default=100,
+        description="Max characters to show per bookmark in list",
+    )
 
     @field_validator("log_level")
     @classmethod

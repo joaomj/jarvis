@@ -22,6 +22,8 @@ class PollingEngine:
         app: Application,
         interval: float = 2.0,
         timeout: int = 30,
+        max_backoff_level: int = 6,
+        max_backoff_seconds: int = 60,
     ):
         """Initialize polling engine.
 
@@ -29,14 +31,17 @@ class PollingEngine:
             app: Telegram application instance.
             interval: Seconds between poll requests.
             timeout: Timeout for getUpdates request.
+            max_backoff_level: Max exponential backoff level.
+            max_backoff_seconds: Cap for backoff delay.
         """
         self.app = app
         self.interval = interval
         self.timeout = timeout
         self._running = False
         self._offset = 0
-        self._backoff = 1  # Exponential backoff counter
-        self._max_backoff = 6  # Max ~64 seconds
+        self._backoff = 1
+        self._max_backoff_level = max_backoff_level
+        self._max_backoff_seconds = max_backoff_seconds
 
     async def start(
         self,
@@ -106,8 +111,8 @@ class PollingEngine:
         Args:
             error: Exception that occurred.
         """
-        delay = min(2 ** self._backoff, 60)  # Cap at 60 seconds
-        self._backoff = min(self._backoff + 1, self._max_backoff)
+        delay = min(2 ** self._backoff, self._max_backoff_seconds)
+        self._backoff = min(self._backoff + 1, self._max_backoff_level)
 
         logger.error(
             "polling_error",
