@@ -252,6 +252,73 @@ User Query (Telegram) - "What did I save last week?"
 │                   Telegram Bot                         │
 │            (python-telegram-bot 21+)                  │
 └────────────────────┬────────────────────────────────┘
+                      │
+                      ▼
+          ┌───────────────────────┐
+          │    Jarvis Bot         │
+          │    (bot.py)          │
+          │  - Session Manager   │
+          │  - Model Selector    │
+          │  - Polling Engine    │
+          │  - Command Router    │
+          └───────────┬───────────┘
+                      │
+        ┌─────────────┼─────────────┐
+        │             │             │
+        ▼             ▼             ▼
+┌─────────────┐ ┌─────────────┐ ┌──────────────────┐
+│  Session    │ │   Model    │ │  Command Router  │
+│  Manager    │ │  Selector  │ │                  │
+│(session_    │ │(model_     │ │ - Blocked        │
+│ manager.py) │ │ selector.py│ │ - Bridge-native  │
+└──────┬──────┘ └──────┬──────┘ │ - Intercept      │
+       │               │        │ - Pass-through   │
+       │               │        └───────┬──────────┘
+       │               │                │
+       │               │ Regular Chat   │ Bookmarks
+       ▼               ▼                │
+┌──────────────┐  ┌─────────────┐        │
+│ OpenCode     │  │ OpenCode    │        │
+│ Client       │  │ Client      │        │
+└──────┬───────┘  └──────┬──────┘        │
+       │                 │               │
+       ▼                 ▼               ▼
+┌──────────────────┐             ┌────────────────────┐
+│  OpenCode Server │             │  Bookmarks Handler │
+│                  │             │ (handlers/bookmarks│
+│ - LLM inference  │             │              .py) │
+│ - File ops      │             │                    │
+│ - Git ops      │             └────────┬───────────┘
+│ - Bash cmds    │                      │
+└──────────────────┘                      │
+       │                                  │
+       │ X Bookmarks                      ▼
+       ▼                          ┌────────────────────┐
+┌──────────────────┐             │  Bookmarks Sync    │
+│  Bookmarks       │             │    (sync.py)       │
+│  Client         │             │                    │
+│ (bookmarks/     │             │ - Auto-sync        │
+│  client.py)     │             │ - Incremental      │
+│  + parser.py    │             │ - Error handling   │
+└────────┬────────┘             └─────────┬───────────┘
+         │                               │
+         ▼                               ▼
+┌──────────────────┐             ┌────────────────────┐
+│    X API Client  │             │  SQLite Database   │
+│     (httpx)      │             │   (database/)     │
+│                  │             │                    │
+│ - OAuth 2.0     │             │ - users.py        │
+│ - Rate limiting │             │ - messages.py     │
+│ - Pagination    │             │ - bookmarks.py    │
+└────────┬────────┘             │ - oauth.py        │
+         │                     │ - core.py          │
+         ▼                     └────────────────────┘
+   (External X API)
+```
+┌─────────────────────────────────────────────────────────┐
+│                   Telegram Bot                         │
+│            (python-telegram-bot 21+)                  │
+└────────────────────┬────────────────────────────────┘
                      │
                      ▼
          ┌───────────────────────┐
@@ -440,9 +507,9 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 - Accuracy: ~95% for common patterns (improvable with LLM parsing)
 
 **WHERE**:
-- Query detection: `bot.py::_is_bookmark_query()` line 119-126
-- Query handling: `bot.py::_handle_bookmark_query()` line 128-153
-- Natural language parsing: `handlers/commands.py::query_bookmarks()` line 281-352
+- Query detection: `handlers/bookmarks.py::is_bookmark_query()`
+- Query handling: `handlers/bookmarks.py::handle_bookmark_query()`
+- Natural language parsing: `handlers/bookmarks.py::query_bookmarks()`
 
 **Tradeoffs:**
 - **Current**: Simple keyword matching, no semantic search
@@ -514,7 +581,7 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 - **How**: Telegram user ID allowlist in SQLite database
 - **Why**: Simple, no OAuth complexity, works with Telegram's existing auth
 - **What**: Single user (can be extended to multi-user allowlist)
-- **Where**: `database.py::is_user_allowed()` checks user_id
+- **Where**: `database/users.py::UserManager.is_user_allowed()` checks user_id
 
 **Network Security:**
 - **How**: Polling only, no public ports, no webhooks
