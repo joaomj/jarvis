@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 
-from jarvis.bookmarks.models import Bookmark
+from jarvis.bookmarks.models import Bookmark, BookmarkFolder
 from jarvis.bookmarks.parser import parse_bookmark
 from jarvis.database import Database
 from jarvis.logging_config import get_logger
@@ -172,13 +172,46 @@ class XAPIClient:
             logger.error("user_id_fetch_failed", error=str(e))
             raise RuntimeError(f"Failed to get user ID: {e}") from e
 
+    async def get_bookmark_folders(self) -> list[BookmarkFolder]:
+        """Get all bookmark folders for the authenticated user.
+
+        Returns:
+            List of BookmarkFolder objects.
+
+        Raises:
+            RuntimeError: If unable to fetch folders.
+        """
+        access_token = await self._get_valid_access_token()
+        user_id = await self._get_user_id()
+
+        try:
+            response = await self.client.get(
+                f"{self.base_url}/users/{user_id}/bookmarks/folders",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            response.raise_for_status()
+            data = response.json()
+            folders_data = data.get("data", [])
+            folders = [
+                BookmarkFolder(folder_id=f["id"], folder_name=f["name"])
+                for f in folders_data
+            ]
+            logger.info("bookmark_folders_fetched", count=len(folders))
+            return folders
+        except httpx.HTTPStatusError as e:
+            logger.error("bookmark_folders_fetch_failed", status_code=e.response.status_code, error=str(e))
+            raise
+        except httpx.RequestError as e:
+            logger.error("bookmark_folders_fetch_error", error=str(e))
+            raise
+
     async def get_bookmarks(
         self,
         since_id: str | None = None,
         pagination_token: str | None = None,
         max_results: int = 100,
     ) -> dict[str, Any]:
-        """Get user bookmarks from X API.
+        """Get user bookmarks from X API with full data.
 
         Args:
             since_id: Only return bookmarks with ID greater than this.
@@ -186,7 +219,7 @@ class XAPIClient:
             max_results: Number of bookmarks to fetch per request (max 100).
 
         Returns:
-            API response JSON.
+            API response JSON with full bookmark data.
         """
         access_token = await self._get_valid_access_token()
         user_id = await self._get_user_id()
@@ -223,11 +256,99 @@ class XAPIClient:
             logger.error("bookmarks_fetch_error", error=str(e))
             raise
 
+    async def get_folder_bookmark_ids(
+        self,
+        folder_id: str,
+        pagination_token: str | None = None,
+    ) -> dict[str, Any]:
+        """Get bookmark IDs (only IDs, no full data) from a specific folder.
+
+        The folder bookmarks endpoint only returns tweet IDs, not full data.
+        Use this to get IDs, then cross-reference with full bookmark data.
+
+        Args:
+            folder_id: Folder ID to fetch bookmarks from.
+            pagination_token: Token for next page.
+
+        Returns:
+            API response JSON with only tweet IDs.
+        """
+        access_token = await self._get_valid_access_token()
+        user_id = await self._get_user_id()
+
+        params: dict[str, str | int] = {}
+
+        if pagination_token:
+            params["pagination_token"] = pagination_token
+
+        try:
+            response = await self.client.get(
+                f"{self.base_url}/users/{user_id}/bookmarks/folders/{folder_id}",
+                params=params if params else None,
+                headers={
+                    "Authorization": f"Bearer {access_token}",
+                    "Content-Type": "application/json",
+                },
+            )
+            response.raise_for_status()
+            data = response.json()
+            logger.info("folder_bookmark_ids_fetched", folder_id=folder_id, count=data.get("meta", {}).get("result_count", 0))
+            return data
+        except httpx.HTTPStatusError as e:
+            logger.error("folder_bookmark_ids_fetch_failed", folder_id=folder_id, status_code=e.response.status_code, error=str(e))
+            raise
+        except httpx.RequestError as e:
+            logger.error("folder_bookmark_ids_fetch_error", folder_id=folder_id, error=str(e))
+            raise
+
+    async def get_all_folder_bookmark_ids(
+        self,
+        folder_id: str,
+    ) -> list[str]:
+        """Get all bookmark IDs from a folder with pagination.
+
+        Args:
+            folder_id: Folder ID to fetch bookmarks from.
+
+        Returns:
+            List of tweet IDs in the folder.
+        """
+        all_ids: list[str] = []
+        pagination_token = None
+
+        while True:
+            try:
+                data = await self.get_folder_bookmark_ids(
+                    folder_id=folder_id,
+                    pagination_token=pagination_token,
+                )
+
+                tweet_list = data.get("data", [])
+                if not tweet_list:
+                    break
+
+                for tweet_data in tweet_list:
+                    tweet_id = tweet_data.get("id")
+                    if tweet_id:
+                        all_ids.append(tweet_id)
+
+                meta = data.get("meta", {})
+                pagination_token = meta.get("next_token")
+                if not pagination_token:
+                    break
+
+            except Exception as e:
+                logger.error("folder_bookmark_ids_pagination_failed", folder_id=folder_id, error=str(e))
+                break
+
+        logger.info("all_folder_bookmark_ids_fetched", folder_id=folder_id, total=len(all_ids))
+        return all_ids
+
     async def get_all_bookmarks(
         self,
         since_id: str | None = None,
     ) -> tuple[list[Bookmark], str | None]:
-        """Get all bookmarks with pagination.
+        """Get all bookmarks with full data and pagination.
 
         Args:
             since_id: Only return bookmarks with ID greater than this.
@@ -243,7 +364,7 @@ class XAPIClient:
             try:
                 data = await self.get_bookmarks(
                     since_id=since_id,
-                    pagination_token=pagination_token
+                    pagination_token=pagination_token,
                 )
 
                 tweet_list = data.get("data", [])

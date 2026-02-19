@@ -1,12 +1,14 @@
 """Scheduled sync for X bookmarks.
 
 Handles full sync on first run, incremental sync thereafter.
+Supports bookmark folders via X API.
 """
 
 import json
 from typing import Any
 
 from jarvis.bookmarks.client import XAPIClient
+from jarvis.bookmarks.models import Bookmark
 from jarvis.database import Database
 from jarvis.logging_config import get_logger
 
@@ -51,6 +53,9 @@ class BookmarkSync:
     async def sync_bookmarks(self, full_sync: bool = False) -> dict[str, Any]:
         """Sync bookmarks from X to local database.
 
+        Fetches bookmarks per-folder to capture folder assignments.
+        For full_sync=True, clears existing folder assignments first.
+
         Args:
             full_sync: If True, download ALL bookmarks (ignore since_id).
                      If False, only download new since last sync.
@@ -67,20 +72,47 @@ class BookmarkSync:
         self.db.update_sync_status(sync_in_progress=True)
 
         try:
-            last_id = sync_status.get("last_tweet_id") if sync_status else None
-            first_ever_sync = not sync_status or not last_id
+            # For full sync, clear existing folder assignments
+            if full_sync:
+                logger.info("clearing_folder_assignments_for_full_sync")
+                self.db.clear_all_folder_assignments()
 
-            if full_sync or first_ever_sync:
-                logger.info("full_sync_triggered", first_ever=first_ever_sync)
-                since_id = None
-            else:
-                since_id = last_id
-                logger.info("incremental_sync_triggered", since_id=since_id)
+            # Step 1: Fetch all folders
+            logger.info("fetching_bookmark_folders")
+            folders = await self.client.get_bookmark_folders()
+            logger.info("folders_fetched", count=len(folders))
 
-            bookmarks, last_tweet_id = await self.client.get_all_bookmarks(since_id=since_id)
+            # Save folder definitions
+            for folder in folders:
+                self.db.save_folder(folder.folder_id, folder.folder_name)
 
+            # Step 2: Fetch ALL bookmarks with full data (single call, 800 max)
+            logger.info("fetching_all_bookmarks_full_data")
+            all_bookmarks_list, last_tweet_id = await self.client.get_all_bookmarks()
+            all_bookmarks: dict[str, Bookmark] = {b.tweet_id: b for b in all_bookmarks_list}
+            logger.info("all_bookmarks_fetched", count=len(all_bookmarks))
+
+            # Step 3: Fetch bookmark IDs per folder and cross-reference
+            bookmark_folders: dict[str, set[str]] = {}  # tweet_id -> set of folder_ids
+
+            for folder in folders:
+                logger.info("fetching_bookmark_ids_for_folder", folder_id=folder.folder_id, folder_name=folder.folder_name)
+                folder_tweet_ids = await self.client.get_all_folder_bookmark_ids(folder_id=folder.folder_id)
+
+                for tweet_id in folder_tweet_ids:
+                    if tweet_id not in bookmark_folders:
+                        bookmark_folders[tweet_id] = set()
+                    bookmark_folders[tweet_id].add(folder.folder_id)
+
+                logger.info("folder_bookmark_ids_fetched", folder=folder.folder_name, count=len(folder_tweet_ids))
+
+            # Any bookmark not in bookmark_folders is uncategorized (no folder assignment needed)
+
+            # Step 4: Save all bookmarks and folder assignments
+            logger.info("saving_bookmarks", total=len(all_bookmarks))
             new_count = 0
-            for bookmark in bookmarks:
+            for tweet_id, bookmark in all_bookmarks.items():
+                # Save bookmark
                 self.db.save_bookmark(
                     tweet_id=bookmark.tweet_id,
                     author_username=bookmark.author.username,
@@ -102,27 +134,34 @@ class BookmarkSync:
                 )
                 new_count += 1
 
-            total_count = (sync_status.get("total_bookmarks", 0) if sync_status else 0) + new_count
+                # Save folder assignments
+                folder_ids = bookmark_folders.get(tweet_id, set())
+                for folder_id in folder_ids:
+                    self.db.assign_bookmark_to_folder(tweet_id, folder_id)
 
+            # Update sync status
+            total_count = len(all_bookmarks)
             self.db.update_sync_status(
                 last_tweet_id=last_tweet_id,
                 total_bookmarks=total_count,
                 sync_in_progress=False,
-                first_sync_complete=True if (full_sync or first_ever_sync) else None
+                first_sync_complete=True
             )
 
             logger.info(
                 "sync_completed",
                 new_bookmarks=new_count,
                 total_bookmarks=total_count,
-                full_sync=full_sync or first_ever_sync
+                folder_count=len(folders),
+                full_sync=full_sync
             )
 
             return {
                 "status": "success",
                 "new_bookmarks": new_count,
                 "total_bookmarks": total_count,
-                "full_sync": full_sync or first_ever_sync
+                "folder_count": len(folders),
+                "full_sync": full_sync
             }
 
         except Exception as e:

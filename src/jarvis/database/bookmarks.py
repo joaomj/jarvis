@@ -228,3 +228,99 @@ class BookmarkOperations(DatabaseCore):
         except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as e:
             logger.warning("get_first_sync_status_failed", error=str(e))
             return False
+
+    def save_folder(self, folder_id: str, folder_name: str) -> None:
+        """Save or update a bookmark folder.
+
+        Args:
+            folder_id: Folder ID from X API.
+            folder_name: Folder name.
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    """INSERT OR REPLACE INTO x_bookmark_folders
+                       (folder_id, folder_name)
+                       VALUES (?, ?)""",
+                    (folder_id, folder_name),
+                )
+        except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as e:
+            logger.warning("save_folder_failed", folder_id=folder_id, error=str(e))
+
+    def assign_bookmark_to_folder(self, tweet_id: str, folder_id: str) -> None:
+        """Assign a bookmark to a folder.
+
+        Args:
+            tweet_id: Tweet ID.
+            folder_id: Folder ID.
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    """INSERT OR IGNORE INTO x_bookmark_folder_assignments
+                       (tweet_id, folder_id)
+                       VALUES (?, ?)""",
+                    (tweet_id, folder_id),
+                )
+        except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as e:
+            logger.warning(
+                "assign_bookmark_to_folder_failed",
+                tweet_id=tweet_id,
+                folder_id=folder_id,
+                error=str(e),
+            )
+
+    def clear_bookmark_folder_assignments(self, tweet_id: str) -> None:
+        """Remove all folder assignments for a bookmark.
+
+        Args:
+            tweet_id: Tweet ID.
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute(
+                    "DELETE FROM x_bookmark_folder_assignments WHERE tweet_id = ?",
+                    (tweet_id,),
+                )
+        except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as e:
+            logger.warning(
+                "clear_bookmark_folder_assignments_failed",
+                tweet_id=tweet_id,
+                error=str(e),
+            )
+
+    def get_folders_for_bookmark(self, tweet_id: str) -> list[dict]:
+        """Get all folders assigned to a bookmark.
+
+        Args:
+            tweet_id: Tweet ID.
+
+        Returns:
+            List of folder dictionaries.
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    """SELECT f.folder_id, f.folder_name
+                       FROM x_bookmark_folders f
+                       JOIN x_bookmark_folder_assignments a ON f.folder_id = a.folder_id
+                       WHERE a.tweet_id = ?""",
+                    (tweet_id,),
+                )
+                columns = [desc[0] for desc in cursor.description]
+                return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
+        except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as e:
+            logger.warning(
+                "get_folders_for_bookmark_failed",
+                tweet_id=tweet_id,
+                error=str(e),
+            )
+            return []
+
+    def clear_all_folder_assignments(self) -> None:
+        """Clear all folder assignments (used before full re-sync)."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("DELETE FROM x_bookmark_folder_assignments")
+        except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as e:
+            logger.warning("clear_all_folder_assignments_failed", error=str(e))

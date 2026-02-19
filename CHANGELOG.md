@@ -4,6 +4,62 @@ All notable changes to Jarvis will be documented in this file.
 
 ## [Unreleased]
 
+## [Added] - 2026-02-18 - X Bookmarks Folder Support
+
+### Database Schema
+- **New tables**: `x_bookmark_folders` and `x_bookmark_folder_assignments`
+  - Junction table design supports many-to-many relationship (bookmark can be in multiple folders)
+  - Foreign key constraints with CASCADE delete
+  - Indexes on tweet_id and folder_id for fast lookups
+
+### API Client Changes
+- Added `get_bookmark_folders()` - fetch folder definitions (ID, name)
+- Added `get_folder_bookmark_ids()` - fetch only tweet IDs from a folder (X API limitation)
+- Added `get_all_folder_bookmark_ids()` - paginated folder ID fetching
+- Note: X API folder endpoint only returns tweet IDs, not full bookmark data
+
+### Sync Strategy Redesign
+- **Step 1**: Fetch all bookmarks with full data (99 max per sync)
+- **Step 2**: Fetch folder definitions
+- **Step 3**: Fetch tweet IDs per folder, cross-reference with full data
+- **Result**: Accurate folder assignments without duplicate API calls
+- Full sync clears existing folder assignments before rebuilding
+
+### Database Operations
+- Added `save_folder()` - upsert folder definitions
+- Added `assign_bookmark_to_folder()` - create junction records
+- Added `clear_all_folder_assignments()` - for full re-sync
+- Added `get_folders_for_bookmark()` - query folders for a bookmark
+
+### New Models
+- `BookmarkFolder` - folder_id, folder_name
+- `BookmarkWithFolders` - extends Bookmark with folder_ids list
+
+### Query Examples
+```sql
+-- Export bookmarks from specific folder
+SELECT b.text FROM x_bookmarks b
+JOIN x_bookmark_folder_assignments a ON b.tweet_id = a.tweet_id
+JOIN x_bookmark_folders f ON a.folder_id = f.folder_id
+WHERE f.folder_name = 'Context retrieval';
+
+-- Export with folder names (CSV)
+SELECT b.text, GROUP_CONCAT(f.folder_name, ', ') as folders
+FROM x_bookmarks b
+LEFT JOIN x_bookmark_folder_assignments a ON b.tweet_id = a.tweet_id
+LEFT JOIN x_bookmark_folders f ON a.folder_id = f.folder_id
+GROUP BY b.tweet_id;
+```
+
+### Migration Path
+```bash
+# Clear existing data and re-sync with folders
+sqlite3 .jarvis/jarvis.db "DELETE FROM x_bookmark_folder_assignments; DELETE FROM x_bookmark_folders; DELETE FROM x_bookmarks; UPDATE x_sync_status SET first_sync_complete=0;"
+
+# Run full sync
+pdm run python -c "import asyncio; from jarvis.config import get_settings; from jarvis.database import Database; from jarvis.bookmarks.sync import BookmarkSync; s = get_settings(); db = Database(s.database_path); sync = BookmarkSync(db, s.x_client_id, s.x_client_secret); asyncio.run(sync.sync_bookmarks(full_sync=True))"
+```
+
 ## [Changed] - 2026-02-16 - X Bookmarks OAuth 2.0 Migration
 
 ### Authentication Migration

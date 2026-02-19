@@ -70,6 +70,45 @@ sqlite3 .jarvis/jarvis.db ".mode column" ".headers on" \
    FROM x_bookmarks ORDER BY bookmark_count DESC LIMIT 10;"
 ```
 
+### Folder Queries
+
+```bash
+# List all folders
+sqlite3 .jarvis/jarvis.db "SELECT folder_name FROM x_bookmark_folders ORDER BY folder_name;"
+
+# Count bookmarks per folder
+sqlite3 .jarvis/jarvis.db ".mode column" ".headers on" \
+  "SELECT f.folder_name, COUNT(a.tweet_id) as count \
+   FROM x_bookmark_folders f \
+   LEFT JOIN x_bookmark_folder_assignments a ON f.folder_id = a.folder_id \
+   GROUP BY f.folder_id ORDER BY count DESC;"
+
+# Export bookmarks from specific folder
+sqlite3 .jarvis/jarvis.db -csv -header \
+  "SELECT b.text \
+   FROM x_bookmarks b \
+   JOIN x_bookmark_folder_assignments a ON b.tweet_id = a.tweet_id \
+   JOIN x_bookmark_folders f ON a.folder_id = f.folder_id \
+   WHERE f.folder_name = 'Context retrieval' \
+   ORDER BY b.bookmarked_at DESC;" > context_retrieval.csv
+
+# Export all bookmarks with their folders
+sqlite3 .jarvis/jarvis.db -csv -header \
+  "SELECT b.text, GROUP_CONCAT(f.folder_name, ', ') as folders \
+   FROM x_bookmarks b \
+   LEFT JOIN x_bookmark_folder_assignments a ON b.tweet_id = a.tweet_id \
+   LEFT JOIN x_bookmark_folders f ON a.folder_id = f.folder_id \
+   GROUP BY b.tweet_id \
+   ORDER BY b.bookmarked_at DESC;" > bookmarks_with_folders.csv
+
+# Find uncategorized bookmarks (not in any folder)
+sqlite3 .jarvis/jarvis.db -csv -header \
+  "SELECT b.text FROM x_bookmarks b \
+   LEFT JOIN x_bookmark_folder_assignments a ON b.tweet_id = a.tweet_id \
+   WHERE a.tweet_id IS NULL \
+   ORDER BY b.bookmarked_at DESC;"
+```
+
 ### Export
 
 ```bash
@@ -112,7 +151,25 @@ sqlite3 .jarvis/jarvis.db ".schema x_sync_status"
 
 # Show OAuth tokens schema
 sqlite3 .jarvis/jarvis.db ".schema x_oauth_tokens"
+
+# Show folder tables schema
+sqlite3 .jarvis/jarvis.db ".schema x_bookmark_folders"
+sqlite3 .jarvis/jarvis.db ".schema x_bookmark_folder_assignments"
 ```
+
+### Table Relationships
+
+```
+x_bookmarks (1) <---> (N) x_bookmark_folder_assignments (N) <---> (1) x_bookmark_folders
+  - tweet_id (PK)         - tweet_id (FK)                          - folder_id (PK)
+  - text                  - folder_id (FK)                         - folder_name
+  - author_username
+  - ...
+```
+
+- **One bookmark** can be in **many folders** (e.g., "Context retrieval" + uncategorized)
+- **One folder** can contain **many bookmarks**
+- Junction table enables many-to-many relationship
 
 ## Known Limitations
 

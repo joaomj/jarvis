@@ -86,6 +86,24 @@ CREATE TABLE IF NOT EXISTS x_oauth_tokens (
 CREATE INDEX IF NOT EXISTS idx_bookmarks_bookmarked_at ON x_bookmarks(bookmarked_at);
 CREATE INDEX IF NOT EXISTS idx_bookmarks_created_at ON x_bookmarks(created_at);
 
+CREATE TABLE IF NOT EXISTS x_bookmark_folders (
+    folder_id TEXT PRIMARY KEY,
+    folder_name TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS x_bookmark_folder_assignments (
+    tweet_id TEXT NOT NULL,
+    folder_id TEXT NOT NULL,
+    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (tweet_id, folder_id),
+    FOREIGN KEY (tweet_id) REFERENCES x_bookmarks(tweet_id) ON DELETE CASCADE,
+    FOREIGN KEY (folder_id) REFERENCES x_bookmark_folders(folder_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_bookmark_folders_tweet_id ON x_bookmark_folder_assignments(tweet_id);
+CREATE INDEX IF NOT EXISTS idx_bookmark_folders_folder_id ON x_bookmark_folder_assignments(folder_id);
+
 INSERT OR IGNORE INTO x_sync_status (id) VALUES (1);
 """
 
