@@ -9,6 +9,7 @@ from jarvis.bot_feedback import BotFeedbackMixin
 from jarvis.bot_updates import BotUpdateMixin
 from jarvis.config import Settings
 from jarvis.database import Database
+from jarvis.event_processor import EventProcessor
 from jarvis.formatter import ResponseFormatter
 from jarvis.logging_config import get_logger
 from jarvis.model_selector import ModelSelector
@@ -36,6 +37,7 @@ class JarvisBot(BotUpdateMixin, BotBookmarksMixin, BotFeedbackMixin):
             message_content_max_length=settings.db_message_content_max_length,
             response_cleanup_days=settings.db_response_cleanup_days,
         )
+        self.events = EventProcessor(self)
         self.models = ModelsManager(settings.favorite_models_path)
         self._running = False
         self._health_probe_sent = False
@@ -79,6 +81,7 @@ class JarvisBot(BotUpdateMixin, BotBookmarksMixin, BotFeedbackMixin):
 
     async def shutdown(self) -> None:
         """Cleanup resources."""
+        await self.events.stop()
         if self.opencode:
             await self.opencode.close()
         logger.info("bot_shutdown_complete")
@@ -95,6 +98,7 @@ class JarvisBot(BotUpdateMixin, BotBookmarksMixin, BotFeedbackMixin):
 
         await self.app.initialize()
         self._running = True
+        self.events.start()
         logger.info("bot_started")
         await self.polling.start(self._handle_update)
 

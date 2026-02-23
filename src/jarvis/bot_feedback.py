@@ -15,6 +15,43 @@ logger = get_logger(__name__)
 class BotFeedbackMixin:
     """Methods for response sending and feedback callbacks."""
 
+    async def _send_response_to_chat(
+        self,
+        chat_id: int,
+        reply_to_message_id: int | None,
+        parts: list[dict[str, object]],
+        turn_id: int | None = None,
+    ) -> None:
+        """Send response chunks directly via bot API."""
+        if self.app is None:
+            return
+
+        formatted_chunks = self.formatter.format_response(parts)
+        total_chunks = len(formatted_chunks)
+        for index, chunk in enumerate(formatted_chunks):
+            is_last_chunk = index == total_chunks - 1
+            reply_markup = build_feedback_keyboard(turn_id) if is_last_chunk and turn_id else None
+            sent_msg = None
+            try:
+                sent_msg = await self.app.bot.send_message(
+                    chat_id=chat_id,
+                    text=chunk,
+                    parse_mode="MarkdownV2",
+                    reply_markup=reply_markup,
+                    reply_to_message_id=reply_to_message_id,
+                )
+            except Exception as error:
+                logger.warning("markdown_send_failed", error=str(error))
+                sent_msg = await self.app.bot.send_message(
+                    chat_id=chat_id,
+                    text=chunk,
+                    reply_markup=reply_markup,
+                    reply_to_message_id=reply_to_message_id,
+                )
+
+            if is_last_chunk and turn_id is not None and sent_msg:
+                self.db.set_out_message_id(turn_id, sent_msg.message_id)
+
     async def _send_response(
         self,
         update: Update,

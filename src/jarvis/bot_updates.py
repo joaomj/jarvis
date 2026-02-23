@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 class BotUpdateMixin:
     """Methods that process inbound Telegram updates."""
 
-    async def _process_input(
+    async def _process_input(  # noqa: PLR0911
         self,
         update: Update,
         user_id: int,
@@ -42,6 +42,9 @@ class BotUpdateMixin:
         if self._is_bookmark_query(text) and await self._handle_bookmark_query(update, text):
             return None
 
+        if await self.events.handle_interaction_input(update, user_id, text):
+            return None
+
         if not self.opencode:
             raise RuntimeError("OpenCode not initialized")
 
@@ -54,7 +57,37 @@ class BotUpdateMixin:
                 return None
             response_parts, info = await self.opencode.send_command(session_id, command, arguments)
         else:
-            response_parts, info = await self.opencode.send_message(session_id, text)
+            if self.events.has_pending_prompt(session_id):
+                await self._send_feedback_message(
+                    update,
+                    user_id,
+                    "I am still processing your previous request. Please wait for completion.",
+                    source="status",
+                    prompt_text=text,
+                )
+                return None
+
+            selected_model = None
+            if self.model_selector:
+                selected_model = self.model_selector.get_model_for_user(user_id)
+
+            await self.opencode.prompt_async(session_id, text, model=selected_model)
+            self.events.register_pending_prompt(
+                session_id=session_id,
+                user_id=user_id,
+                chat_id=update.effective_message.chat_id,
+                in_message_id=update.effective_message.message_id,
+                prompt_text=text,
+                session_title=f"jarvis-session-{session_id[:8]}",
+            )
+            await self._send_feedback_message(
+                update,
+                user_id,
+                "Working on it... I will send the full response when OpenCode finishes.",
+                source="status",
+                prompt_text=text,
+            )
+            return None
 
         content_text = "\n".join(
             p.get("text", "") for p in response_parts if p.get("type") == "text"
@@ -73,9 +106,11 @@ class BotUpdateMixin:
 
         return response_parts, info
 
-    async def _handle_update(self, update: Update) -> None:
+    async def _handle_update(self, update: Update) -> None:  # noqa: PLR0911
         """Process single update from polling."""
         if update.callback_query:
+            if await self.events.handle_callback(update):
+                return
             await self._handle_feedback_callback(update)
             return
         if not update.effective_user or not update.effective_message:
@@ -83,6 +118,7 @@ class BotUpdateMixin:
 
         user_id = update.effective_user.id
         text = update.effective_message.text or ""
+        self.events.remember_chat(update.effective_message.chat_id)
         if not self._is_authorized(user_id):
             logger.warning("unauthorized", user_id=user_id, text=text[:50])
             return

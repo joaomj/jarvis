@@ -95,6 +95,30 @@ class OpenCodeClient:
             logger.error("sessions_list_error", error=str(error))
             raise OpenCodeError(f"Failed to list sessions: {error}") from error
 
+    async def get_session_messages(self, session_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        """Get recent messages for a session."""
+        try:
+            response = await self.client.get(
+                f"{self.base_url}/session/{session_id}/message",
+                params={"limit": limit},
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data if isinstance(data, list) else []
+        except httpx.HTTPStatusError as error:
+            logger.error(
+                "session_messages_failed",
+                session_id=session_id,
+                status_code=error.response.status_code,
+            )
+            raise OpenCodeError(
+                f"Failed to fetch session messages: HTTP {error.response.status_code}",
+                status_code=error.response.status_code,
+            ) from error
+        except httpx.HTTPError as error:
+            logger.error("session_messages_error", session_id=session_id, error=str(error))
+            raise OpenCodeError(f"Failed to fetch session messages: {error}") from error
+
     async def send_message(
         self,
         session_id: str,
