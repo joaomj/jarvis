@@ -104,7 +104,40 @@ CREATE TABLE IF NOT EXISTS x_bookmark_folder_assignments (
 CREATE INDEX IF NOT EXISTS idx_bookmark_folders_tweet_id ON x_bookmark_folder_assignments(tweet_id);
 CREATE INDEX IF NOT EXISTS idx_bookmark_folders_folder_id ON x_bookmark_folder_assignments(folder_id);
 
+CREATE TABLE IF NOT EXISTS telegram_turn_feedback (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_user_id INTEGER NOT NULL,
+    telegram_chat_id INTEGER NOT NULL,
+    telegram_in_message_id INTEGER,
+    telegram_out_message_id INTEGER,
+    source TEXT NOT NULL,
+    opencode_session_id TEXT,
+    model_full TEXT,
+    agent TEXT,
+    prompt_text TEXT NOT NULL,
+    response_text TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    vote INTEGER,
+    voted_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_turn_feedback_vote_voted_at ON telegram_turn_feedback(vote, voted_at);
+CREATE INDEX IF NOT EXISTS idx_turn_feedback_created_at ON telegram_turn_feedback(created_at);
+
 INSERT OR IGNORE INTO x_sync_status (id) VALUES (1);
+
+CREATE TABLE IF NOT EXISTS opencode_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_user_id INTEGER NOT NULL,
+    opencode_session_id TEXT NOT NULL UNIQUE,
+    session_title TEXT NOT NULL,
+    date_key TEXT NOT NULL,  -- YYYY-MM-DD for daily rotation
+    model_used TEXT,          -- Last model used (for debugging/auditing)
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_sessions_user_date ON opencode_sessions(telegram_user_id, date_key);
+CREATE INDEX IF NOT EXISTS idx_sessions_opencode_id ON opencode_sessions(opencode_session_id);
 """
 
 

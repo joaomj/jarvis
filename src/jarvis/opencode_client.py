@@ -236,15 +236,24 @@ class OpenCodeClient:
             logger.info("message_sent", **log_data)
             return parts, info
         except httpx.HTTPStatusError as e:
+            # Try to get response body for better error messages
+            response_text = ""
+            try:
+                response_text = e.response.text[:500]  # Limit length
+            except Exception:
+                pass  # If we can't read the body, continue without it
+
+            error_msg = f"Failed to send message: HTTP {e.response.status_code}"
+            if response_text:
+                error_msg += f" - {response_text}"
+
             logger.error(
                 "message_send_failed",
                 session_id=session_id,
                 status_code=e.response.status_code,
+                response_preview=response_text[:200] if response_text else None,
             )
-            raise OpenCodeError(
-                f"Failed to send message: {e}",
-                status_code=e.response.status_code,
-            ) from e
+            raise OpenCodeError(error_msg, status_code=e.response.status_code) from e
         except httpx.HTTPError as e:
             logger.error("message_send_error", session_id=session_id, error=str(e))
             raise OpenCodeError(f"Failed to send message: {e}") from e
@@ -313,16 +322,25 @@ class OpenCodeClient:
             logger.info("command_executed", **log_data)
             return parts, info
         except httpx.HTTPStatusError as e:
+            # Try to get response body for better error messages
+            response_text = ""
+            try:
+                response_text = e.response.text[:500]  # Limit length
+            except Exception:
+                pass  # If we can't read the body, continue without it
+
+            error_msg = f"Failed to execute command: HTTP {e.response.status_code}"
+            if response_text:
+                error_msg += f" - {response_text}"
+
             logger.error(
                 "command_execution_failed",
                 session_id=session_id,
                 command=command,
                 status_code=e.response.status_code,
+                response_preview=response_text[:200] if response_text else None,
             )
-            raise OpenCodeError(
-                f"Failed to execute command: {e}",
-                status_code=e.response.status_code,
-            ) from e
+            raise OpenCodeError(error_msg, status_code=e.response.status_code) from e
         except httpx.HTTPError as e:
             logger.error(
                 "command_execution_error",

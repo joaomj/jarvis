@@ -118,6 +118,16 @@ User Message (Telegram)
     ↓
 [Authorization Check] - SQLite allowlist lookup
     ↓ (authorized)
+[First Message After Restart?]
+    ├─ Yes → [Create New Session] - Unique timestamp in title
+    │         ↓
+    │       [Send Health Probe] - Test message "What day is today?"
+    │         ├─ Uses default model (first in favorite_models.json)
+    │         └─ Reports model, agent, session info to user
+    │         ↓
+    │       [Return Early] - Wait for user's next message
+    └─ No → [Use Existing Session] - Cached in memory
+    ↓
 [Detect Command Type] - /command vs regular text
     ↓
 [Forward to OpenCode Server]
@@ -141,6 +151,18 @@ User Message (Telegram)
     ↓
 [Log Response] - SQLite (session_id, user_id, model, text)
 ```
+
+**Session Management:**
+- **HOW**: New session created on every bot restart (not just daily)
+- **WHY**: Ensures clean state, prevents stale model carryover, predictable behavior
+- **WHAT**: Session title includes timestamp: `jarvis-user-{user_id}-{YYYY-MM-DD-HHMMSS}`
+- **WHERE**: Session stored in SQLite for audit, cached in memory for fast access
+
+**Startup Health Probe:**
+- **HOW**: First message after bot restart triggers test message
+- **WHY**: Validates system is working before user starts real work
+- **WHAT**: Sends "What day is today?" with default model, reports status to user
+- **WHERE**: `bot.py::_send_daily_health_probe()`
 
 **Metrics:**
 - **HOW**: Logged at each step with correlation ID
@@ -669,13 +691,16 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 **`.jarvis/favorite_models.json`**:
 ```json
 [
-  "anthropic/claude-sonnet-4-20250514",
-  "openai/gpt-4o",
-  "google/gemini-2.5-pro"
+  "openai/gpt-5.2",
+  "zai/glm-4.7",
+  "openai/gpt-5.3-codex"
 ]
 ```
 
-**Why?** Provides quick model selection without typing full provider/model strings.
+**Why?** 
+- First model in list is used as default for new sessions
+- Provides quick model selection without typing full provider/model strings
+- Used as fallback when OpenCode returns model-related errors
 
 ---
 

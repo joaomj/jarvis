@@ -13,8 +13,10 @@ import sqlite3
 from pathlib import Path
 
 from jarvis.database.bookmarks import BookmarkOperations
+from jarvis.database.feedback import FeedbackOperations
 from jarvis.database.messages import MessageOperations
 from jarvis.database.oauth import OAuthOperations
+from jarvis.database.sessions import SessionOperations
 from jarvis.database.users import UserOperations
 from jarvis.exceptions import DatabaseError
 from jarvis.logging_config import get_logger
@@ -27,6 +29,8 @@ class Database(
     MessageOperations,
     BookmarkOperations,
     OAuthOperations,
+    FeedbackOperations,
+    SessionOperations,
 ):
     """SQLite database manager combining all domain operations."""
 

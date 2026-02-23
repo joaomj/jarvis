@@ -104,6 +104,7 @@ class TestJarvisBotPolling:
 
         # Create mock update
         mock_update = MagicMock()
+        mock_update.callback_query = None
         mock_update.effective_user.id = 999999  # Not authorized
         mock_update.effective_message.text = "Hello"
 
@@ -123,7 +124,7 @@ class TestJarvisBotPolling:
 
         bot = JarvisBot(settings)
         bot.opencode = mock_opencode
-        bot.session_manager = SessionManager(mock_opencode)
+        bot.session_manager = SessionManager(mock_opencode, bot.db)
         bot.db.add_user(12345)
 
         result = await handle_intercept_command("new", "Test Session", 12345, bot)
@@ -191,6 +192,33 @@ class TestPollingEngine:
         # Verify backoff counter increased
         assert engine._backoff > 1
 
+    @pytest.mark.asyncio
+    async def test_polling_requests_callback_query(self, mock_app):
+        """Test polling engine requests callback_query updates."""
+        from jarvis.polling_engine import PollingEngine
+
+        engine = PollingEngine(mock_app, interval=0.01, timeout=5)
+
+        call_count = 0
+        captured_kwargs = {}
+
+        async def capture_get_updates(*args, **kwargs):
+            nonlocal call_count, captured_kwargs
+            call_count += 1
+            captured_kwargs = kwargs
+            if call_count >= 1:
+                engine.stop()
+            return []
+
+        mock_app.bot.get_updates = capture_get_updates
+
+        handler = AsyncMock()
+        await engine.start(handler)
+
+        assert "allowed_updates" in captured_kwargs
+        assert "callback_query" in captured_kwargs["allowed_updates"]
+        assert "message" in captured_kwargs["allowed_updates"]
+
 
 class TestDatabase:
     """Tests for database layer."""
@@ -226,3 +254,322 @@ class TestDatabase:
 
         # Verify count
         assert db.get_user_message_count(123) == 2
+
+
+class TestFeedbackOperations:
+    """Tests for feedback operations."""
+
+    @pytest.fixture
+    def db(self, tmp_path):
+        """Create test database."""
+        db_path = tmp_path / "test.db"
+        return Database(str(db_path))
+
+    def test_create_turn(self, db):
+        """Test creating a feedback turn record."""
+        turn_id = db.create_turn(
+            telegram_user_id=12345,
+            telegram_chat_id=67890,
+            source="opencode",
+            prompt_text="What is AI?",
+            response_text="AI stands for Artificial Intelligence.",
+        )
+        assert turn_id > 0
+
+        turn = db.get_turn(turn_id)
+        assert turn is not None
+        assert turn["telegram_user_id"] == 12345
+        assert turn["telegram_chat_id"] == 67890
+        assert turn["source"] == "opencode"
+        assert turn["prompt_text"] == "What is AI?"
+        assert turn["response_text"] == "AI stands for Artificial Intelligence."
+        assert turn["vote"] is None
+
+    def test_set_out_message_id(self, db):
+        """Test setting outgoing message ID."""
+        turn_id = db.create_turn(
+            telegram_user_id=12345,
+            telegram_chat_id=67890,
+            source="opencode",
+            prompt_text="Test",
+            response_text="Response",
+        )
+        db.set_out_message_id(turn_id, 99999)
+
+        turn = db.get_turn(turn_id)
+        assert turn["telegram_out_message_id"] == 99999
+
+    def test_record_vote_authorized(self, db):
+        """Test recording vote by authorized user."""
+        turn_id = db.create_turn(
+            telegram_user_id=12345,
+            telegram_chat_id=67890,
+            source="opencode",
+            prompt_text="Test",
+            response_text="Response",
+        )
+        result = db.record_vote(turn_id, 12345, 1)
+        assert result is True
+
+        turn = db.get_turn(turn_id)
+        assert turn["vote"] == 1
+        assert turn["voted_at"] is not None
+
+    def test_record_vote_unauthorized(self, db):
+        """Test that unauthorized user cannot vote."""
+        turn_id = db.create_turn(
+            telegram_user_id=12345,
+            telegram_chat_id=67890,
+            source="opencode",
+            prompt_text="Test",
+            response_text="Response",
+        )
+        result = db.record_vote(turn_id, 99999, 1)
+        assert result is False
+
+        turn = db.get_turn(turn_id)
+        assert turn["vote"] is None
+
+    def test_record_vote_overwrite(self, db):
+        """Test that vote can be overwritten (last vote wins)."""
+        turn_id = db.create_turn(
+            telegram_user_id=12345,
+            telegram_chat_id=67890,
+            source="opencode",
+            prompt_text="Test",
+            response_text="Response",
+        )
+        db.record_vote(turn_id, 12345, 1)
+        db.record_vote(turn_id, 12345, -1)
+
+        turn = db.get_turn(turn_id)
+        assert turn["vote"] == -1
+
+
+class TestFeedbackCallback:
+    """Tests for feedback callback handling."""
+
+    @pytest.fixture
+    def settings(self, tmp_path):
+        """Create test settings with temp database."""
+        db_path = tmp_path / "test.db"
+        return Settings(
+            telegram_bot_id="test_token",
+            telegram_user_id=123456789,
+            telegram_polling_interval=0.5,
+            telegram_polling_timeout=10,
+            opencode_url="http://localhost:4096",
+            opencode_server_password="test_password",
+            database_path=str(db_path),
+            enable_message_audit=True,
+        )
+
+    @pytest.fixture
+    def bot(self, settings):
+        """Create test bot instance."""
+        return JarvisBot(settings)
+
+    @pytest.mark.asyncio
+    async def test_callback_updates_vote(self, bot):
+        """Test callback query updates vote in database."""
+        bot.db.add_user(123456789)
+
+        turn_id = bot.db.create_turn(
+            telegram_user_id=123456789,
+            telegram_chat_id=67890,
+            source="opencode",
+            prompt_text="Test",
+            response_text="Response",
+        )
+
+        mock_callback = MagicMock()
+        mock_callback.from_user.id = 123456789
+        mock_callback.data = f"fb:{turn_id}:up"
+        mock_callback.answer = AsyncMock()
+        mock_callback.edit_message_reply_markup = AsyncMock()
+
+        mock_update = MagicMock()
+        mock_update.callback_query = mock_callback
+        mock_update.effective_user = None
+        mock_update.effective_message = None
+
+        await bot._handle_update(mock_update)
+
+        turn = bot.db.get_turn(turn_id)
+        assert turn["vote"] == 1
+        mock_callback.answer.assert_called_once()
+        mock_callback.edit_message_reply_markup.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_callback_unauthorized_user(self, bot):
+        """Test unauthorized user cannot vote."""
+        bot.db.add_user(123456789)
+
+        turn_id = bot.db.create_turn(
+            telegram_user_id=123456789,
+            telegram_chat_id=67890,
+            source="opencode",
+            prompt_text="Test",
+            response_text="Response",
+        )
+
+        mock_callback = MagicMock()
+        mock_callback.from_user.id = 999999
+        mock_callback.data = f"fb:{turn_id}:up"
+        mock_callback.answer = AsyncMock()
+        mock_callback.edit_message_reply_markup = AsyncMock()
+
+        mock_update = MagicMock()
+        mock_update.callback_query = mock_callback
+
+        await bot._handle_update(mock_update)
+
+        turn = bot.db.get_turn(turn_id)
+        assert turn["vote"] is None
+
+    @pytest.mark.asyncio
+    async def test_callback_invalid_format(self, bot):
+        """Test invalid callback data is ignored."""
+        bot.db.add_user(123456789)
+
+        mock_callback = MagicMock()
+        mock_callback.from_user.id = 123456789
+        mock_callback.data = "invalid_data"
+        mock_callback.answer = AsyncMock()
+
+        mock_update = MagicMock()
+        mock_update.callback_query = mock_callback
+
+        await bot._handle_update(mock_update)
+
+        mock_callback.answer.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_callback_downvote(self, bot):
+        """Test downvote records -1."""
+        bot.db.add_user(123456789)
+
+        turn_id = bot.db.create_turn(
+            telegram_user_id=123456789,
+            telegram_chat_id=67890,
+            source="opencode",
+            prompt_text="Test",
+            response_text="Response",
+        )
+
+        mock_callback = MagicMock()
+        mock_callback.from_user.id = 123456789
+        mock_callback.data = f"fb:{turn_id}:down"
+        mock_callback.answer = AsyncMock()
+        mock_callback.edit_message_reply_markup = AsyncMock()
+
+        mock_update = MagicMock()
+        mock_update.callback_query = mock_callback
+
+        await bot._handle_update(mock_update)
+
+        turn = bot.db.get_turn(turn_id)
+        assert turn["vote"] == -1
+
+
+class TestFeedbackTurnCreation:
+    """Tests for turn creation during response handling."""
+
+    @pytest.fixture
+    def settings(self, tmp_path):
+        """Create test settings with temp database."""
+        db_path = tmp_path / "test.db"
+        return Settings(
+            telegram_bot_id="test_token",
+            telegram_user_id=123456789,
+            telegram_polling_interval=0.5,
+            telegram_polling_timeout=10,
+            opencode_url="http://localhost:4096",
+            opencode_server_password="test_password",
+            database_path=str(db_path),
+            enable_message_audit=True,
+        )
+
+    @pytest.fixture
+    def bot(self, settings):
+        """Create test bot instance."""
+        return JarvisBot(settings)
+
+    @pytest.mark.asyncio
+    async def test_send_response_attaches_keyboard_only_on_last_chunk(self, bot):
+        """Test that feedback keyboard is only attached to the last chunk."""
+        bot.db.add_user(123456789)
+
+        turn_id = bot.db.create_turn(
+            telegram_user_id=123456789,
+            telegram_chat_id=67890,
+            source="opencode",
+            prompt_text="Test",
+            response_text="Response",
+        )
+
+        mock_msg = MagicMock()
+        mock_msg.reply_text = AsyncMock(return_value=MagicMock(message_id=123))
+
+        mock_update = MagicMock()
+        mock_update.effective_message = mock_msg
+        mock_update.callback_query = None
+
+        parts = [
+            {"type": "text", "text": "First chunk"},
+            {"type": "text", "text": "Second chunk"},
+        ]
+
+        await bot._send_response(mock_update, parts, turn_id)
+
+        assert mock_msg.reply_text.call_count == 2
+
+        first_call = mock_msg.reply_text.call_args_list[0]
+        second_call = mock_msg.reply_text.call_args_list[1]
+
+        assert first_call.kwargs.get("reply_markup") is None
+        assert second_call.kwargs.get("reply_markup") is not None
+
+    @pytest.mark.asyncio
+    async def test_send_response_stores_message_id(self, bot):
+        """Test that message ID is stored after sending."""
+        bot.db.add_user(123456789)
+
+        turn_id = bot.db.create_turn(
+            telegram_user_id=123456789,
+            telegram_chat_id=67890,
+            source="opencode",
+            prompt_text="Test",
+            response_text="Response",
+        )
+
+        mock_msg = MagicMock()
+        mock_msg.reply_text = AsyncMock(return_value=MagicMock(message_id=999))
+
+        mock_update = MagicMock()
+        mock_update.effective_message = mock_msg
+        mock_update.callback_query = None
+
+        parts = [{"type": "text", "text": "Response"}]
+
+        await bot._send_response(mock_update, parts, turn_id)
+
+        turn = bot.db.get_turn(turn_id)
+        assert turn["telegram_out_message_id"] == 999
+
+    @pytest.mark.asyncio
+    async def test_send_response_without_turn_id_no_keyboard(self, bot):
+        """Test that no keyboard is attached when turn_id is None."""
+        mock_msg = MagicMock()
+        mock_msg.reply_text = AsyncMock(return_value=MagicMock(message_id=123))
+
+        mock_update = MagicMock()
+        mock_update.effective_message = mock_msg
+        mock_update.callback_query = None
+
+        parts = [{"type": "text", "text": "Response"}]
+
+        await bot._send_response(mock_update, parts, turn_id=None)
+
+        call = mock_msg.reply_text.call_args
+        assert call.kwargs.get("reply_markup") is None

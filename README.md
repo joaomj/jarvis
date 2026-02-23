@@ -162,13 +162,13 @@ Create `.jarvis/favorite_models.json`:
 
 ```json
 [
-  "opencode/glm-5",
-  "opencode/minimax-m2.5-free",
-  "openai/gpt-4o"
+  "openai/gpt-5.2",
+  "zai/glm-4.7",
+  "openai/gpt-5.3-codex"
 ]
 ```
 
-Use `/models` to interactively select, or `!model provider/model` to set directly.
+The first model in the list is used as the default for new sessions.
 
 ## Documentation
 
