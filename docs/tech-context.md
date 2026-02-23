@@ -39,11 +39,11 @@ Jarvis is a **personal AI assistant accessible via Telegram** that bridges mobil
 **Regular Chat Flow:**
 1. User types message in Telegram (e.g., "Explain the bug in src/auth.py")
 2. Jarvis receives via polling, checks authorization
-3. Jarvis forwards to OpenCode Server
-4. OpenCode processes (reads files, runs commands, calls LLM)
-5. OpenCode returns response to Jarvis
-6. Jarvis formats for Telegram (chunking, markdown escaping)
-7. User sees response on phone
+3. Jarvis sends async prompt to OpenCode (`/session/{id}/prompt_async`)
+4. Jarvis subscribes to OpenCode SSE events (`/event`) and tracks session progress
+5. On assistant completion event, Jarvis fetches latest assistant message parts
+6. Jarvis formats for Telegram (chunking, markdown escaping) and sends response
+7. User sees response on phone while bot remains responsive for callbacks
 
 **X Bookmarks Flow:**
 1. First message of the day triggers auto-sync
@@ -132,7 +132,7 @@ User Message (Telegram)
     ↓
 [Forward to OpenCode Server]
     ├─ /command → POST /session/{id}/command
-    └─ text      → POST /session/{id}/message
+    └─ text      → POST /session/{id}/prompt_async
     ↓
 [OpenCode Processing]
     ├─ LLM inference
@@ -140,7 +140,10 @@ User Message (Telegram)
     ├─ Git operations
     └─ Bash commands
     ↓
-[Response Received] - Contains parts (text, tool results) + info (model, agent)
+[OpenCode Event Stream] - `message.updated`, `session.diff`, `question.asked`, `permission.asked`
+    ↓
+[Assistant Completion Detected]
+    └─ Jarvis fetches `/session/{id}/message?limit=30` for final assistant parts
     ↓
 [Format for Telegram]
     ├─ Markdown escaping
@@ -151,6 +154,18 @@ User Message (Telegram)
     ↓
 [Log Response] - SQLite (session_id, user_id, model, text)
 ```
+
+**Interaction Guard:**
+- **HOW**: Question/permission flows are stateful and block unrelated user text
+- **WHY**: Prevents mixed inputs while the agent is waiting for explicit answers/approval
+- **WHAT**: Allowed during active flow: `/help`, `/status`, `/stop`; everything else is blocked or redirected
+- **WHERE**: `interaction_manager.py` + `event_processor.py`
+
+**Pinned Status Message:**
+- **HOW**: Maintain and update one pinned Telegram message with debounced edits
+- **WHY**: Always-visible operational state from mobile
+- **WHAT**: Session title, model, agent, approximate context tokens, changed files list
+- **WHERE**: `pinned_status.py` + event updates from `session.diff` and `message.updated`
 
 **Session Management:**
 - **HOW**: New session created on every bot restart (not just daily)
@@ -166,9 +181,9 @@ User Message (Telegram)
 
 **Metrics:**
 - **HOW**: Logged at each step with correlation ID
-- **WHY**: Debug latency issues, track OpenCode reliability
-- **WHAT**: Typical latency: 2-5s end-to-end (depends on LLM response time)
-- **WHERE**: All steps logged in structured JSON logs
+- **WHY**: Debug latency issues, track OpenCode reliability and event-stream health
+- **WHAT**: Typical latency: 2-5s end-to-end; user input loop stays responsive during long runs
+- **WHERE**: Structured logs in bot, event processor, and OpenCode client
 
 ### Data Flow: X Bookmarks Sync
 
