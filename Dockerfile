@@ -5,6 +5,7 @@ FROM python:3.12-alpine AS builder
 WORKDIR /build
 
 # Install build dependencies
+# hadolint ignore=DL3018
 RUN apk add --no-cache gcc musl-dev libffi-dev
 
 # Copy dependency files first for caching (include README.md for pyproject.toml)

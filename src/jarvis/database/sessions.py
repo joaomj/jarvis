@@ -14,7 +14,7 @@ Each day creates a new session automatically.
 """
 
 import sqlite3
-from datetime import date
+from datetime import date, timedelta
 
 from jarvis.database.core import DatabaseCore
 from jarvis.exceptions import DatabaseError
@@ -185,8 +185,6 @@ class SessionOperations(DatabaseCore):
         Returns:
             Number of records deleted.
         """
-        from datetime import timedelta
-
         cutoff_date = (date.today() - timedelta(days=days_to_keep)).isoformat()
         try:
             with sqlite3.connect(self.db_path) as conn:

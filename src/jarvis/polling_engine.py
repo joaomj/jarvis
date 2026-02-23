@@ -43,10 +43,7 @@ class PollingEngine:
         self._max_backoff_level = max_backoff_level
         self._max_backoff_seconds = max_backoff_seconds
 
-    async def start(
-        self,
-        message_handler: Callable[[Update], Awaitable[None]]
-    ) -> None:
+    async def start(self, message_handler: Callable[[Update], Awaitable[None]]) -> None:
         """Start polling loop.
 
         Args:
@@ -78,9 +75,7 @@ class PollingEngine:
         )
 
     async def _process_updates(
-        self,
-        updates: list[Update],
-        handler: Callable[[Update], Awaitable[None]]
+        self, updates: list[Update], handler: Callable[[Update], Awaitable[None]]
     ) -> None:
         """Process fetched updates.
 
@@ -97,11 +92,7 @@ class PollingEngine:
                 await handler(update)
                 self._offset = update.update_id + 1
             except Exception as e:
-                logger.error(
-                    "update_processing_error",
-                    update_id=update.update_id,
-                    error=str(e)
-                )
+                logger.error("update_processing_error", update_id=update.update_id, error=str(e))
                 # Continue with next update, don't increment offset
                 # So we retry this update
 
@@ -111,7 +102,7 @@ class PollingEngine:
         Args:
             error: Exception that occurred.
         """
-        delay = min(2 ** self._backoff, self._max_backoff_seconds)
+        delay = min(2**self._backoff, self._max_backoff_seconds)
         self._backoff = min(self._backoff + 1, self._max_backoff_level)
 
         logger.error(

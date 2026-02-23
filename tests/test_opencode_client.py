@@ -18,9 +18,7 @@ class TestOpenCodeClientErrors:
     @respx.mock
     async def test_health_check_failure(self, client):
         """Test health check returns False with error reason."""
-        respx.get("http://localhost:4096/global/health").mock(
-            return_value=httpx.Response(500)
-        )
+        respx.get("http://localhost:4096/global/health").mock(return_value=httpx.Response(500))
 
         healthy, reason = await client.health_check()
 

@@ -8,7 +8,7 @@ import json
 from datetime import UTC, date, datetime
 from typing import Any
 
-from jarvis.bookmarks.client import XAPIClient
+from jarvis.bookmarks.client import DEFAULT_X_API_BASE_URL, DEFAULT_X_OAUTH_TOKEN_URL, XAPIClient
 from jarvis.bookmarks.models import Bookmark
 from jarvis.database import Database
 from jarvis.logging_config import get_logger
@@ -19,13 +19,13 @@ logger = get_logger(__name__)
 class BookmarkSync:
     """Bookmark synchronization manager."""
 
-    def __init__(
+    def __init__(  # noqa: PLR0913
         self,
         db: Database,
         client_id: str,
         client_secret: str,
-        base_url: str = "https://api.twitter.com/2",
-        oauth_token_url: str = "https://api.x.com/2/oauth2/token",
+        base_url: str = DEFAULT_X_API_BASE_URL,
+        oauth_token_url: str = DEFAULT_X_OAUTH_TOKEN_URL,
         api_timeout: float = 30.0,
         token_refresh_buffer_seconds: int = 300,
     ):

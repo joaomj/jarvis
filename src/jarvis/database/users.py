@@ -27,8 +27,7 @@ class UserOperations(DatabaseCore):
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.execute(
-                    "SELECT allowed FROM users WHERE telegram_id = ?",
-                    (telegram_id,)
+                    "SELECT allowed FROM users WHERE telegram_id = ?", (telegram_id,)
                 )
                 result = cursor.fetchone()
                 return bool(result and result[0])
@@ -48,10 +47,7 @@ class UserOperations(DatabaseCore):
         """
         try:
             with sqlite3.connect(self.db_path) as conn:
-                conn.execute(
-                    "INSERT OR IGNORE INTO users (telegram_id) VALUES (?)",
-                    (telegram_id,)
-                )
+                conn.execute("INSERT OR IGNORE INTO users (telegram_id) VALUES (?)", (telegram_id,))
                 logger.info("user_added", telegram_id=telegram_id)
         except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as e:
             error_msg = f"Failed to add user {telegram_id}"

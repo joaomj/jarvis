@@ -60,9 +60,9 @@ async def query_bookmarks(query: str, bot: "JarvisBot") -> str:
                     f"📚 <b>X Bookmarks</b>\n\n"
                     f"You have <b>{total}</b> bookmarks saved.\n\n"
                     "Try asking:\n"
-                    "• \"What did I save in the last week?\"\n"
-                    "• \"Show me my recent bookmarks\"\n"
-                    "• \"Tell me about my AI/ML tweets\""
+                    '• "What did I save in the last week?"\n'
+                    '• "Show me my recent bookmarks"\n'
+                    '• "Tell me about my AI/ML tweets"'
                 )
             return "📚 No bookmarks synced yet. Use /x-auth to connect your X account."
 
@@ -75,7 +75,11 @@ async def query_bookmarks(query: str, bot: "JarvisBot") -> str:
 
         for i, bm in enumerate(bookmarks[:max_display], 1):
             author = bm["author_username"]
-            text = bm["text"][:preview_length] + "..." if len(bm["text"]) > preview_length else bm["text"]
+            text = (
+                bm["text"][:preview_length] + "..."
+                if len(bm["text"]) > preview_length
+                else bm["text"]
+            )
             lines.append(f"\n<b>{i}.</b> @{html.escape(author)}\n{html.escape(text)}")
 
         if len(bookmarks) > max_display:

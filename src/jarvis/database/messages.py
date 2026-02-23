@@ -11,12 +11,7 @@ logger = get_logger(__name__)
 class MessageOperations(DatabaseCore):
     """Message audit trail and response logging."""
 
-    def log_message(
-        self,
-        telegram_id: int,
-        direction: str,
-        content: str
-    ) -> None:
+    def log_message(self, telegram_id: int, direction: str, content: str) -> None:
         """Log message to audit trail.
 
         Args:
@@ -29,7 +24,7 @@ class MessageOperations(DatabaseCore):
                 conn.execute(
                     """INSERT INTO messages (telegram_id, direction, content)
                        VALUES (?, ?, ?)""",
-                    (telegram_id, direction, content[:self._message_content_max_length])
+                    (telegram_id, direction, content[: self._message_content_max_length]),
                 )
         except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as e:
             logger.warning(
@@ -51,8 +46,7 @@ class MessageOperations(DatabaseCore):
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.execute(
-                    "SELECT COUNT(*) FROM messages WHERE telegram_id = ?",
-                    (telegram_id,)
+                    "SELECT COUNT(*) FROM messages WHERE telegram_id = ?", (telegram_id,)
                 )
                 return cursor.fetchone()[0]
         except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as e:

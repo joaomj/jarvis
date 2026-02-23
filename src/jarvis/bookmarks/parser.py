@@ -76,9 +76,7 @@ def parse_bookmark(tweet_data: dict[str, Any], users: dict[str, dict]) -> Bookma
     created_at = None
     if "created_at" in tweet_data:
         with contextlib.suppress(ValueError):
-            created_at = datetime.fromisoformat(
-                tweet_data["created_at"].replace("Z", "+00:00")
-            )
+            created_at = datetime.fromisoformat(tweet_data["created_at"].replace("Z", "+00:00"))
 
     text = tweet_data.get("text", "")
 

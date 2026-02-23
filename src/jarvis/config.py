@@ -24,12 +24,8 @@ class Settings(BaseSettings):
     )
 
     # Telegram settings
-    telegram_bot_id: str = Field(
-        description="Telegram bot token from @BotFather"
-    )
-    telegram_user_id: int = Field(
-        description="Authorized Telegram user ID"
-    )
+    telegram_bot_id: str = Field(description="Telegram bot token from @BotFather")
+    telegram_user_id: int = Field(description="Authorized Telegram user ID")
     telegram_polling_interval: float = Field(
         default=1.0,
         description="Seconds between polling requests",
@@ -44,9 +40,7 @@ class Settings(BaseSettings):
         default="http://localhost:4096",
         description="OpenCode Server HTTP URL",
     )
-    opencode_server_password: str = Field(
-        description="OpenCode Server password for authentication"
-    )
+    opencode_server_password: str = Field(description="OpenCode Server password for authentication")
 
     # Database settings
     database_path: str = Field(
@@ -155,9 +149,7 @@ class Settings(BaseSettings):
     def validate_polling_interval(cls, v: float) -> float:
         """Validate polling interval is reasonable."""
         if v < MIN_POLLING_INTERVAL:
-            raise ValueError(
-                f"polling_interval must be >= {MIN_POLLING_INTERVAL}s, got {v}"
-            )
+            raise ValueError(f"polling_interval must be >= {MIN_POLLING_INTERVAL}s, got {v}")
         return v
 
     @field_validator("telegram_polling_timeout")

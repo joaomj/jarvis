@@ -108,8 +108,7 @@ class SessionManager:
         self._sessions[user_id] = session_id
         self._session_created_for_user.add(user_id)
 
-        # Store in database for audit trail (use date for date_key)
-        today = now.date().isoformat()
+        # Store in database for audit trail
         try:
             self._db.create_session_record(user_id, session_id, session_title)
         except DatabaseError as e:

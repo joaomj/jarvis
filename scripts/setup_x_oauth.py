@@ -1,16 +1,5 @@
 #!/usr/bin/env python3
-"""One-time OAuth 2.0 PKCE setup for X API access.
-
-This script guides you through authorizing jarvis to access your X bookmarks.
-
-Usage:
-    python scripts/setup_x_oauth.py
-
-Prerequisites:
-    1. Create an X app at https://developer.x.com
-    2. Set callback URL to http://127.0.0.1:8080/callback
-    3. Set X_CLIENT_ID and X_CLIENT_SECRET in .env
-"""
+"""One-time OAuth 2.0 PKCE setup for X API bookmark access."""
 
 from __future__ import annotations
 
@@ -89,11 +78,7 @@ class OAuthCallbackHandler(BaseHTTPRequestHandler):
 
 
 def generate_pkce() -> tuple[str, str]:
-    """Generate PKCE code_verifier and code_challenge.
-
-    Returns:
-        Tuple of (code_verifier, code_challenge).
-    """
+    """Generate PKCE code_verifier and code_challenge."""
     code_verifier = secrets.token_urlsafe(64)
     if len(code_verifier) > 128:
         code_verifier = code_verifier[:128]
@@ -110,17 +95,7 @@ def build_auth_url(
     code_challenge: str,
     state: str,
 ) -> str:
-    """Build X OAuth authorization URL.
-
-    Args:
-        client_id: OAuth client ID.
-        redirect_uri: Callback URL.
-        code_challenge: PKCE code challenge.
-        state: Random state string.
-
-    Returns:
-        Authorization URL.
-    """
+    """Build X OAuth authorization URL."""
     params = {
         "response_type": "code",
         "client_id": client_id,
@@ -140,18 +115,7 @@ async def exchange_code_for_tokens(
     redirect_uri: str,
     code_verifier: str,
 ) -> dict:
-    """Exchange authorization code for access tokens.
-
-    Args:
-        client_id: OAuth client ID.
-        client_secret: OAuth client secret.
-        code: Authorization code.
-        redirect_uri: Callback URL.
-        code_verifier: PKCE code verifier.
-
-    Returns:
-        Token response dictionary.
-    """
+    """Exchange authorization code for access tokens."""
     async with httpx.AsyncClient() as client:
         response = await client.post(
             "https://api.x.com/2/oauth2/token",
@@ -169,15 +133,7 @@ async def exchange_code_for_tokens(
 
 
 def wait_for_callback(server: HTTPServer, timeout: int = 300) -> bool:
-    """Wait for OAuth callback.
-
-    Args:
-        server: HTTP server instance.
-        timeout: Timeout in seconds.
-
-    Returns:
-        True if callback received, False on timeout.
-    """
+    """Wait for OAuth callback."""
     start = time.time()
     while not OAuthCallbackHandler.callback_received:
         if time.time() - start > timeout:
@@ -306,9 +262,11 @@ def main() -> int:
     print("  1. Start jarvis with: python -m jarvis")
     print("  2. Or run manual sync with:")
     print('     python -c "import asyncio; from jarvis.config import get_settings; \\')
-    print('     from jarvis.database import Database; from jarvis.bookmarks.sync import BookmarkSync; \\')
-    print('     s = get_settings(); db = Database(s.database_path); \\')
-    print('     sync = BookmarkSync(db, s.x_client_id, s.x_client_secret); \\')
+    print(
+        "     from jarvis.database import Database; from jarvis.bookmarks.sync import BookmarkSync; \\"
+    )
+    print("     s = get_settings(); db = Database(s.database_path); \\")
+    print("     sync = BookmarkSync(db, s.x_client_id, s.x_client_secret); \\")
     print('     print(asyncio.run(sync.sync_bookmarks(full_sync=True)))"')
     print()
 

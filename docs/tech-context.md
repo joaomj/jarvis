@@ -725,7 +725,7 @@ pdm run python -m jarvis
 pdm run pytest
 
 # Specific test file
-pdm run pytest tests/test_bookmarks.py -v
+pdm run pytest tests/test_bookmark_client_sync.py -v
 
 # With coverage
 pdm run pytest --cov=src/jarvis --cov-report=term-missing

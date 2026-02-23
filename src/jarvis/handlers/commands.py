@@ -14,9 +14,7 @@ if TYPE_CHECKING:
 logger = get_logger("commands")
 
 
-async def handle_intercept_command(
-    cmd: str, args: str, user_id: int, bot: "JarvisBot"
-) -> str:
+async def handle_intercept_command(cmd: str, args: str, user_id: int, bot: "JarvisBot") -> str:
     """Handle intercepted OpenCode commands.
 
     Args:
@@ -41,9 +39,7 @@ async def handle_intercept_command(
     return f"Unknown command: /{cmd}"
 
 
-async def handle_bridge_command(
-    cmd: str, args: str, user_id: int, bot: "JarvisBot"
-) -> str:
+async def handle_bridge_command(cmd: str, args: str, user_id: int, bot: "JarvisBot") -> str:
     """Handle bridge-native commands.
 
     Args:
@@ -161,7 +157,9 @@ async def _handle_list_sessions(_args: str, user_id: int, bot: "JarvisBot") -> s
 
         lines = [
             "📋 <b>Your Sessions</b>\n",
-            f"Current: <code>{current_session[:16]}...</code>" if current_session != "None" else "No active session",
+            f"Current: <code>{current_session[:16]}...</code>"
+            if current_session != "None"
+            else "No active session",
             "\nTo create new: /new",
             "To switch: /switch &lt;session_id&gt;",
         ]
@@ -223,11 +221,7 @@ async def _handle_agent(args: str, user_id: int, _bot: "JarvisBot") -> str:
             logger.info("Agent change requested", agent=agent_name, user_id=user_id)
             return f"✅ Agent <code>{html.escape(agent_name)}</code> will be used for new sessions."
 
-        return (
-            "Usage:\n"
-            "/agent get - Show agent info\n"
-            "/agent set &lt;name&gt; - Set default agent"
-        )
+        return "Usage:\n/agent get - Show agent info\n/agent set &lt;name&gt; - Set default agent"
     except Exception as e:
         logger.error("_handle_agent_failed", error=str(e), exc_info=True)
         return "❌ Failed to process agent command. Please try again."

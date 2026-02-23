@@ -53,9 +53,7 @@ class ModelsManager:
 
             # Validate each item is string
             valid_models = [
-                str(model).strip()
-                for model in data
-                if isinstance(model, str) and model.strip()
+                str(model).strip() for model in data if isinstance(model, str) and model.strip()
             ]
 
             # Enforce limit

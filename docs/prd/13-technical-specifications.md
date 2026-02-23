@@ -86,7 +86,7 @@ jarvis/
 |-- tests/
 |   |-- __init__.py
 |   |-- conftest.py                  # pytest fixtures
-|   |-- test_bot.py                  # Telegram bot tests
+|   |-- test_jarvis_bot_polling.py   # Telegram bot tests
 |   `-- test_opencode_client.py      # OpenCode API tests
 |
 |-- data/                            # Runtime data (Phase 2+)
@@ -113,5 +113,4 @@ jarvis/
 - `opencode_client.py`: ~150 lines, HTTP client for OpenCode Server API
 - `config.py`: ~50 lines, pydantic-settings for env vars
 - `formatter.py`: ~100 lines, chunk responses, format markdown for Telegram
-
 
