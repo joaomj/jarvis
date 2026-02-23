@@ -5,6 +5,7 @@ import pytest
 import respx
 
 from jarvis.opencode_client import OpenCodeClient, OpenCodeError
+from jarvis.opencode_events import parse_sse_event_block
 
 
 class TestOpenCodeClientErrors:
@@ -54,3 +55,81 @@ class TestOpenCodeClientErrors:
 
         with pytest.raises(OpenCodeError, match="Failed to execute command"):
             await client.send_command("ses-123", "undo")
+
+    @respx.mock
+    async def test_prompt_async_success(self, client):
+        """Test async prompt endpoint accepts request."""
+        route = respx.post("http://localhost:4096/session/ses-123/prompt_async").mock(
+            return_value=httpx.Response(204)
+        )
+
+        await client.prompt_async("ses-123", "Hello")
+
+        assert route.called
+
+    @respx.mock
+    async def test_prompt_async_failure(self, client):
+        """Test async prompt raises OpenCodeError on failure."""
+        respx.post("http://localhost:4096/session/ses-123/prompt_async").mock(
+            return_value=httpx.Response(500)
+        )
+
+        with pytest.raises(OpenCodeError, match="Failed to send async prompt"):
+            await client.prompt_async("ses-123", "Hello")
+
+    @respx.mock
+    async def test_question_reply_success(self, client):
+        """Test replying to question request."""
+        route = respx.post("http://localhost:4096/question/req-123/reply").mock(
+            return_value=httpx.Response(200, json=True)
+        )
+
+        result = await client.question_reply("req-123", [["A"]])
+
+        assert route.called
+        assert result is True
+
+    @respx.mock
+    async def test_permission_reply_success(self, client):
+        """Test replying to permission request."""
+        route = respx.post("http://localhost:4096/permission/perm-123/reply").mock(
+            return_value=httpx.Response(200, json=True)
+        )
+
+        result = await client.permission_reply("perm-123", "once")
+
+        assert route.called
+        assert result is True
+
+
+class TestOpenCodeEvents:
+    """Test SSE event parsing helpers."""
+
+    def test_parse_sse_event_block_valid(self):
+        """Valid SSE block parses to dictionary event payload."""
+        lines = [
+            "event: message.updated",
+            'data: {"type":"message.updated","properties":{"id":"msg_1"}}',
+        ]
+
+        parsed = parse_sse_event_block(lines)
+
+        assert parsed is not None
+        assert parsed["type"] == "message.updated"
+        assert parsed["properties"]["id"] == "msg_1"
+
+    def test_parse_sse_event_block_invalid_json_returns_none(self):
+        """Invalid SSE JSON payload is ignored."""
+        lines = ["event: broken", "data: {not-json"]
+
+        parsed = parse_sse_event_block(lines)
+
+        assert parsed is None
+
+    def test_parse_sse_event_block_missing_data_returns_none(self):
+        """SSE block without data lines is ignored."""
+        lines = ["event: ping", "id: 1"]
+
+        parsed = parse_sse_event_block(lines)
+
+        assert parsed is None

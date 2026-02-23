@@ -2,18 +2,16 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
 
 from jarvis.exceptions import OpenCodeError
 from jarvis.logging_config import get_logger
-from jarvis.opencode_response import (
-    parse_model_string,
-    response_text,
-    status_error_preview,
-    used_model,
-)
+from jarvis.opencode_events import parse_sse_event_block
+from jarvis.opencode_request_helpers import post_boolean, send_with_payload
+from jarvis.opencode_response import parse_model_string, status_error_preview
 
 logger = get_logger(__name__)
 
@@ -108,13 +106,18 @@ class OpenCodeClient:
         if model:
             payload["model"] = parse_model_string(model)
 
-        return await self._send_with_payload(
+        return await send_with_payload(
+            client=self.client,
+            base_url=self.base_url,
             endpoint=f"/session/{session_id}/message",
             payload=payload,
             event_name="message_sent",
             error_name="message_send_failed",
             base_error="Failed to send message",
             session_id=session_id,
+            command=None,
+            log_level=self._log_level,
+            logger=logger,
         )
 
     async def send_command(
@@ -129,7 +132,9 @@ class OpenCodeClient:
         if model:
             payload["model"] = parse_model_string(model)
 
-        return await self._send_with_payload(
+        return await send_with_payload(
+            client=self.client,
+            base_url=self.base_url,
             endpoint=f"/session/{session_id}/command",
             payload=payload,
             event_name="command_executed",
@@ -137,73 +142,135 @@ class OpenCodeClient:
             base_error="Failed to execute command",
             session_id=session_id,
             command=command,
+            log_level=self._log_level,
+            logger=logger,
         )
 
-    async def _send_with_payload(  # noqa: PLR0913
+    async def prompt_async(
         self,
-        endpoint: str,
-        payload: dict[str, Any],
-        event_name: str,
-        error_name: str,
-        base_error: str,
         session_id: str,
-        command: str | None = None,
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        """Send payload to OpenCode and normalize logging/error behavior."""
+        text: str,
+        model: str | None = None,
+        agent: str | None = None,
+    ) -> None:
+        """Send message asynchronously without waiting for final response."""
+        payload: dict[str, Any] = {"parts": [{"type": "text", "text": text}]}
+        if model:
+            payload["model"] = parse_model_string(model)
+        if agent:
+            payload["agent"] = agent
+
         try:
-            response = await self.client.post(f"{self.base_url}{endpoint}", json=payload)
+            response = await self.client.post(
+                f"{self.base_url}/session/{session_id}/prompt_async",
+                json=payload,
+            )
             response.raise_for_status()
-            data = response.json()
-            parts = data.get("parts", [])
-            info = data.get("info", {})
-            self._log_success(event_name, session_id, parts, info, command=command)
-            return parts, info
+            logger.info("prompt_async_sent", session_id=session_id, agent=agent)
         except httpx.HTTPStatusError as error:
             preview = status_error_preview(error)
-            error_msg = f"{base_error}: HTTP {error.response.status_code}"
+            error_msg = f"Failed to send async prompt: HTTP {error.response.status_code}"
             if preview:
                 error_msg = f"{error_msg} - {preview}"
-
-            log_data: dict[str, Any] = {
-                "session_id": session_id,
-                "status_code": error.response.status_code,
-                "response_preview": preview[:200] if preview else None,
-            }
-            if command is not None:
-                log_data["command"] = command
-
-            logger.error(error_name, **log_data)
+            logger.error(
+                "prompt_async_failed",
+                session_id=session_id,
+                status_code=error.response.status_code,
+                response_preview=preview[:200] if preview else None,
+            )
             raise OpenCodeError(error_msg, status_code=error.response.status_code) from error
         except httpx.HTTPError as error:
-            log_data = {"session_id": session_id, "error": str(error)}
-            if command is not None:
-                log_data["command"] = command
-                logger.error("command_execution_error", **log_data)
-                raise OpenCodeError(f"Failed to execute command: {error}") from error
+            logger.error("prompt_async_error", session_id=session_id, error=str(error))
+            raise OpenCodeError(f"Failed to send async prompt: {error}") from error
 
-            logger.error("message_send_error", **log_data)
-            raise OpenCodeError(f"Failed to send message: {error}") from error
+    async def stream_events(self, directory: str | None = None) -> AsyncIterator[dict[str, Any]]:
+        """Subscribe to OpenCode SSE event stream and yield parsed events."""
+        params = {"directory": directory} if directory else None
 
-    def _log_success(
+        try:
+            async with self.client.stream(
+                "GET",
+                f"{self.base_url}/event",
+                params=params,
+                headers={"Accept": "text/event-stream"},
+            ) as response:
+                response.raise_for_status()
+                block: list[str] = []
+                async for line in response.aiter_lines():
+                    if line == "":
+                        event = parse_sse_event_block(block)
+                        if event is not None:
+                            yield event
+                        block.clear()
+                        continue
+                    if not line.startswith(":"):
+                        block.append(line)
+
+                if block:
+                    event = parse_sse_event_block(block)
+                    if event is not None:
+                        yield event
+        except httpx.HTTPStatusError as error:
+            preview = status_error_preview(error)
+            logger.error(
+                "events_stream_failed",
+                status_code=error.response.status_code,
+                response_preview=preview[:200] if preview else None,
+                directory=directory,
+            )
+            error_msg = f"Failed to subscribe to events: HTTP {error.response.status_code}"
+            raise OpenCodeError(error_msg, status_code=error.response.status_code) from error
+        except httpx.HTTPError as error:
+            logger.error("events_stream_error", error=str(error), directory=directory)
+            raise OpenCodeError(f"Failed to subscribe to events: {error}") from error
+
+    async def question_reply(
         self,
-        event_name: str,
-        session_id: str,
-        parts: list[dict[str, Any]],
-        info: dict[str, Any],
-        command: str | None = None,
-    ) -> None:
-        """Log successful OpenCode responses."""
-        content = response_text(parts)
-        model_name, agent = used_model(info)
-        log_data: dict[str, Any] = {
-            "session_id": session_id,
-            "response_parts": len(parts),
-            "model": model_name,
-            "agent": agent,
-            "content_preview": content[:200] if content else "",
-        }
-        if command is not None:
-            log_data["command"] = command
-        if self._log_level == "DEBUG":
-            log_data["content_full"] = content
-        logger.info(event_name, **log_data)
+        request_id: str,
+        answers: list[list[str]],
+        directory: str | None = None,
+    ) -> bool:
+        """Reply to an OpenCode question request."""
+        params = {"directory": directory} if directory else None
+        payload = {"answers": answers}
+        return await post_boolean(
+            client=self.client,
+            base_url=self.base_url,
+            endpoint=f"/question/{request_id}/reply",
+            payload=payload,
+            params=params,
+            error_prefix="Failed to reply to question",
+        )
+
+    async def question_reject(self, request_id: str, directory: str | None = None) -> bool:
+        """Reject an OpenCode question request."""
+        params = {"directory": directory} if directory else None
+        return await post_boolean(
+            client=self.client,
+            base_url=self.base_url,
+            endpoint=f"/question/{request_id}/reject",
+            payload={},
+            params=params,
+            error_prefix="Failed to reject question",
+        )
+
+    async def permission_reply(
+        self,
+        request_id: str,
+        reply: str,
+        message: str | None = None,
+        directory: str | None = None,
+    ) -> bool:
+        """Reply to an OpenCode permission request."""
+        params = {"directory": directory} if directory else None
+        payload: dict[str, Any] = {"reply": reply}
+        if message:
+            payload["message"] = message
+        return await post_boolean(
+            client=self.client,
+            base_url=self.base_url,
+            endpoint=f"/permission/{request_id}/reply",
+            payload=payload,
+            params=params,
+            error_prefix="Failed to reply to permission request",
+        )
