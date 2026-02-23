@@ -133,3 +133,25 @@ From all those cases, the most urgent i want to solve is the one about summarizi
 - [Annas Archive API](https://annas-archive.li/faq#api): 
   *We have one stable JSON API for members, for getting a fast download URL: [/dyn/api/fast_download.json](https://annas-archive.li/dyn/api/fast_download.json) (documentation within JSON itself). For other use cases, such as iterating through all our files, building custom search, and so on, we recommend [generating](https://software.annas-archive.li/AnnaArchivist/annas-archive/-/blob/main/data-imports/README.md) or [downloading](https://annas-archive.li/torrents#aa_derived_mirror_metadata) our ElasticSearch and MariaDB databases. The raw data can be manually explored through JSON files](https://annas-archive.li/db/aarecord_elasticsearch/md5:8336332bf5877e3adbfb60ac70720cd5.json.html). Our raw torrents list can be downloaded as [JSON](https://annas-archive.li/dyn/torrents.json) as well.*
 - [Semantic Scholar API](https://www.semanticscholar.org/product/api/tutorial): if we use an API key, we get 1 rate per second limit. For our use its sufficient.
+
+## Next Implementation Priorities
+
+### Feedback Mechanism for Bot Messages
+Add a way to get feedback on each message sent by the bot (thumbs up/down buttons). This will help me understand which responses are helpful and which are not, enabling me to improve the system over time.
+
+### Model and Agent Visibility
+Every message sent by the bot must show the agent being used and the model name. The model should follow the opencode convention: `provider/model-id` (e.g., `anthropic/claude-sonnet-4-20250514`, `openai/gpt-4o`). This provides transparency about which AI and model is generating each response.
+
+### Natural Language Command Interface
+Remove almost all Telegram slash commands and replace them with natural language commands. Jarvis will map these natural language commands into opencode commands. The user should be able to interact using conversational language rather than memorizing specific commands.
+
+### Key Commands to Support via Natural Language
+The commands I use most when using the opencode TUI are:
+- `/models` - List available models
+- `/agents` - List available agents
+- `/review` - Trigger code review
+
+These commands should be accessible through natural language queries like:
+- "What models are available?"
+- "Show me the agents"
+- "Review my code"

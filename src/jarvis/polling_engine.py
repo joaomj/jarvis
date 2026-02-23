@@ -74,7 +74,7 @@ class PollingEngine:
             offset=self._offset,
             limit=100,
             timeout=self.timeout,
-            allowed_updates=["message"],
+            allowed_updates=["message", "callback_query"],
         )
 
     async def _process_updates(

@@ -39,6 +39,9 @@ All notable changes to Jarvis will be documented in this file.
 - Added tests for mark-unsynced + prune mirror flow
 - Current test status: 52 passing
 
+### Documentation
+- Replaced `docs/x-bookmarks-queries.md` with `docs/sql-query-examples.md` scoped as a concise SQL cookbook for local databases
+
 ## [Added] - 2026-02-18 - X Bookmarks Folder Support
 
 ### Database Schema
