@@ -4,6 +4,41 @@ All notable changes to Jarvis will be documented in this file.
 
 ## [Unreleased]
 
+## [Changed] - 2026-02-23 - Weekly Mirror Reconcile + Low-Cost Daily Sync
+
+### X Bookmarks Sync Strategy
+- Switched to **daily incremental sync** (`since_id`) and **weekly full reconcile** (>= 7 days)
+- Full reconcile now mirrors remote state by pruning local bookmarks not returned by X
+- Folder memberships are refreshed during weekly reconcile
+
+### Bookmark Accounting
+- `new_bookmarks` now counts only truly new `tweet_id` values (not all saved rows)
+- `total_bookmarks` is now computed from `COUNT(DISTINCT tweet_id)` in SQLite
+- Added `deleted_bookmarks` in sync result/log output for reconcile visibility
+
+### Database Schema / Migration
+- Added `x_sync_status.last_full_sync_date`
+- Added `x_sync_status.last_folders_sync_date`
+- Added startup migration for existing DBs via `PRAGMA table_info` + `ALTER TABLE`
+
+### Storage Semantics
+- Replaced `INSERT OR REPLACE` with UPSERT in `x_bookmarks` writes
+- Preserves row identity and `bookmarked_at` while updating mutable fields and `last_synced_at`
+
+### API Payload Minimization
+- Bookmark fetch now requests minimal fields while preserving username support:
+  - Tweet: `id`, `text`, `created_at`, `author_id`
+  - User: `username`
+- `tweet_url` now uses `x.com` format with fallback to `x.com/i/web/status/{id}` when username is missing
+
+### Reliability
+- Bookmark pagination failures now fail fast instead of silently truncating sync results
+
+### Tests
+- Added tests for UPSERT behavior preserving row identity
+- Added tests for mark-unsynced + prune mirror flow
+- Current test status: 52 passing
+
 ## [Added] - 2026-02-18 - X Bookmarks Folder Support
 
 ### Database Schema

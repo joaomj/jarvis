@@ -1,5 +1,6 @@
 """Tests for X bookmarks functionality."""
 
+import sqlite3
 from datetime import UTC, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
 
@@ -100,6 +101,135 @@ class TestDatabaseBookmarks:
         assert bookmark is not None
         assert bookmark["tweet_id"] == "123456789"
         assert bookmark["author_username"] == "testuser"
+
+    def test_save_bookmark_upsert_preserves_row_identity(self, db):
+        """Test upsert updates bookmark without replacing row."""
+        db.save_bookmark(
+            tweet_id="same-id",
+            author_username="user1",
+            author_name="User 1",
+            author_verified=False,
+            text="Original",
+            note_text=None,
+            created_at=None,
+            tweet_url="https://x.com/user1/status/same-id",
+            like_count=0,
+            retweet_count=0,
+            reply_count=0,
+            impression_count=0,
+            bookmark_count=0,
+            media_urls="[]",
+            urls_expanded="[]",
+            context_annotations="[]",
+            raw_json="{}",
+        )
+
+        with sqlite3.connect(db.db_path) as conn:
+            first_row_id = conn.execute(
+                "SELECT id FROM x_bookmarks WHERE tweet_id = ?",
+                ("same-id",),
+            ).fetchone()[0]
+
+        db.save_bookmark(
+            tweet_id="same-id",
+            author_username="user1",
+            author_name="User 1",
+            author_verified=False,
+            text="Updated",
+            note_text=None,
+            created_at=None,
+            tweet_url="https://x.com/user1/status/same-id",
+            like_count=0,
+            retweet_count=0,
+            reply_count=0,
+            impression_count=0,
+            bookmark_count=0,
+            media_urls="[]",
+            urls_expanded="[]",
+            context_annotations="[]",
+            raw_json="{}",
+        )
+
+        with sqlite3.connect(db.db_path) as conn:
+            second_row_id = conn.execute(
+                "SELECT id FROM x_bookmarks WHERE tweet_id = ?",
+                ("same-id",),
+            ).fetchone()[0]
+
+        bookmark = db.get_bookmark_by_id("same-id")
+        assert first_row_id == second_row_id
+        assert bookmark is not None
+        assert bookmark["text"] == "Updated"
+
+    def test_bookmark_sync_mark_and_prune(self, db):
+        """Test mark unsynced and prune flow for mirror reconcile."""
+        db.save_bookmark(
+            tweet_id="keep",
+            author_username="user1",
+            author_name="User 1",
+            author_verified=False,
+            text="Keep",
+            note_text=None,
+            created_at=None,
+            tweet_url="https://x.com/user1/status/keep",
+            like_count=0,
+            retweet_count=0,
+            reply_count=0,
+            impression_count=0,
+            bookmark_count=0,
+            media_urls="[]",
+            urls_expanded="[]",
+            context_annotations="[]",
+            raw_json="{}",
+        )
+        db.save_bookmark(
+            tweet_id="drop",
+            author_username="user2",
+            author_name="User 2",
+            author_verified=False,
+            text="Drop",
+            note_text=None,
+            created_at=None,
+            tweet_url="https://x.com/user2/status/drop",
+            like_count=0,
+            retweet_count=0,
+            reply_count=0,
+            impression_count=0,
+            bookmark_count=0,
+            media_urls="[]",
+            urls_expanded="[]",
+            context_annotations="[]",
+            raw_json="{}",
+        )
+
+        db.mark_all_bookmarks_unsynced()
+
+        # Simulate seeing only one bookmark in current sync
+        db.save_bookmark(
+            tweet_id="keep",
+            author_username="user1",
+            author_name="User 1",
+            author_verified=False,
+            text="Keep",
+            note_text=None,
+            created_at=None,
+            tweet_url="https://x.com/user1/status/keep",
+            like_count=0,
+            retweet_count=0,
+            reply_count=0,
+            impression_count=0,
+            bookmark_count=0,
+            media_urls="[]",
+            urls_expanded="[]",
+            context_annotations="[]",
+            raw_json="{}",
+        )
+
+        deleted = db.delete_unsynced_bookmarks()
+        assert deleted == 1
+        assert db.get_bookmark_by_id("keep") is not None
+        assert db.get_bookmark_by_id("drop") is None
+        assert db.get_total_bookmarks_count() == 1
 
     def test_get_bookmarks_by_time_range(self, db):
         """Test getting bookmarks by time range."""

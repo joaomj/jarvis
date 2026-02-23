@@ -50,6 +50,8 @@ class SyncStatus(BaseModel):
     last_sync_date: str | None = None
     last_sync_at: datetime | None = None
     last_tweet_id: str | None = None
+    last_full_sync_date: str | None = None
+    last_folders_sync_date: str | None = None
     total_bookmarks: int = Field(default=0, ge=0)
     sync_in_progress: bool = Field(default=False)
     first_sync_complete: bool = Field(default=False)

@@ -226,8 +226,8 @@ class XAPIClient:
 
         params: dict[str, str | int] = {
             "max_results": min(max_results, 100),
-            "tweet.fields": "created_at,public_metrics,author_id,entities,context_annotations",
-            "user.fields": "username,name,verified",
+            "tweet.fields": "created_at,author_id",
+            "user.fields": "username",
             "expansions": "author_id",
         }
 
@@ -276,7 +276,7 @@ class XAPIClient:
         access_token = await self._get_valid_access_token()
         user_id = await self._get_user_id()
 
-        params: dict[str, str | int] = {}
+        params: dict[str, str] = {}
 
         if pagination_token:
             params["pagination_token"] = pagination_token
@@ -338,8 +338,12 @@ class XAPIClient:
                     break
 
             except Exception as e:
-                logger.error("folder_bookmark_ids_pagination_failed", folder_id=folder_id, error=str(e))
-                break
+                logger.error(
+                    "folder_bookmark_ids_pagination_failed",
+                    folder_id=folder_id,
+                    error=str(e),
+                )
+                raise RuntimeError(f"Failed folder pagination for {folder_id}: {e}") from e
 
         logger.info("all_folder_bookmark_ids_fetched", folder_id=folder_id, total=len(all_ids))
         return all_ids
@@ -395,7 +399,7 @@ class XAPIClient:
 
             except Exception as e:
                 logger.error("bookmarks_pagination_failed", error=str(e), exc_info=True)
-                break
+                raise RuntimeError(f"Failed bookmarks pagination: {e}") from e
 
         logger.info("all_bookmarks_fetched", total=len(all_bookmarks))
         return all_bookmarks, last_tweet_id

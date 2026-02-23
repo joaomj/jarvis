@@ -55,12 +55,30 @@ class BookmarkOperations(DatabaseCore):
         try:
             with sqlite3.connect(self.db_path) as conn:
                 conn.execute(
-                    """INSERT OR REPLACE INTO x_bookmarks
+                    """INSERT INTO x_bookmarks
                        (tweet_id, author_username, author_name, author_verified, text,
                         note_text, created_at, tweet_url, like_count, retweet_count,
                         reply_count, impression_count, bookmark_count, media_urls,
                         urls_expanded, context_annotations, raw_json, last_synced_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                       ON CONFLICT(tweet_id) DO UPDATE SET
+                           author_username=excluded.author_username,
+                           author_name=excluded.author_name,
+                           author_verified=excluded.author_verified,
+                           text=excluded.text,
+                           note_text=excluded.note_text,
+                           created_at=excluded.created_at,
+                           tweet_url=excluded.tweet_url,
+                           like_count=excluded.like_count,
+                           retweet_count=excluded.retweet_count,
+                           reply_count=excluded.reply_count,
+                           impression_count=excluded.impression_count,
+                           bookmark_count=excluded.bookmark_count,
+                           media_urls=excluded.media_urls,
+                           urls_expanded=excluded.urls_expanded,
+                           context_annotations=excluded.context_annotations,
+                           raw_json=excluded.raw_json,
+                           last_synced_at=CURRENT_TIMESTAMP""",
                     (
                         tweet_id, author_username, author_name, author_verified, text,
                         note_text, created_at, tweet_url, like_count, retweet_count,
@@ -74,6 +92,57 @@ class BookmarkOperations(DatabaseCore):
                 tweet_id=tweet_id,
                 error=str(e),
             )
+
+    def get_all_bookmark_ids(self) -> set[str]:
+        """Get all bookmark tweet IDs.
+
+        Returns:
+            Set of tweet IDs currently stored in database.
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute("SELECT tweet_id FROM x_bookmarks")
+                return {row[0] for row in cursor.fetchall()}
+        except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as e:
+            logger.warning("get_all_bookmark_ids_failed", error=str(e))
+            return set()
+
+    def get_total_bookmarks_count(self) -> int:
+        """Get total distinct bookmark count in database.
+
+        Returns:
+            Distinct bookmark count.
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute("SELECT COUNT(DISTINCT tweet_id) FROM x_bookmarks")
+                row = cursor.fetchone()
+                return int(row[0]) if row else 0
+        except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as e:
+            logger.warning("get_total_bookmarks_count_failed", error=str(e))
+            return 0
+
+    def mark_all_bookmarks_unsynced(self) -> None:
+        """Mark all bookmarks as unsynced for full mirror reconciliation."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("UPDATE x_bookmarks SET last_synced_at = NULL")
+        except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as e:
+            logger.warning("mark_all_bookmarks_unsynced_failed", error=str(e))
+
+    def delete_unsynced_bookmarks(self) -> int:
+        """Delete bookmarks not seen during current full reconciliation.
+
+        Returns:
+            Number of deleted rows.
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute("DELETE FROM x_bookmarks WHERE last_synced_at IS NULL")
+                return cursor.rowcount
+        except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as e:
+            logger.warning("delete_unsynced_bookmarks_failed", error=str(e))
+            return 0
 
     def get_bookmarks_by_time_range(self, start_date: str, end_date: str) -> list[dict]:
         """Get bookmarks within time range.
@@ -150,8 +219,9 @@ class BookmarkOperations(DatabaseCore):
         try:
             with sqlite3.connect(self.db_path) as conn:
                 cursor = conn.execute(
-                    """SELECT last_sync_date, last_sync_at, last_tweet_id, total_bookmarks,
-                              sync_in_progress, first_sync_complete
+                    """SELECT last_sync_date, last_sync_at, last_tweet_id,
+                              last_full_sync_date, last_folders_sync_date,
+                              total_bookmarks, sync_in_progress, first_sync_complete
                        FROM x_sync_status
                        WHERE id = 1""",
                 )
@@ -169,6 +239,8 @@ class BookmarkOperations(DatabaseCore):
         last_sync_date: str | None = None,
         last_sync_at: str | None = None,
         last_tweet_id: str | None = None,
+        last_full_sync_date: str | None = None,
+        last_folders_sync_date: str | None = None,
         total_bookmarks: int | None = None,
         sync_in_progress: bool | None = None,
         first_sync_complete: bool | None = None,
@@ -179,6 +251,8 @@ class BookmarkOperations(DatabaseCore):
             last_sync_date: Last sync date string (YYYY-MM-DD).
             last_sync_at: Last sync timestamp.
             last_tweet_id: Last synced tweet ID.
+            last_full_sync_date: Last full mirror sync date (YYYY-MM-DD).
+            last_folders_sync_date: Last folder membership sync date (YYYY-MM-DD).
             total_bookmarks: Total bookmark count.
             sync_in_progress: Whether sync is in progress.
             first_sync_complete: Whether first full sync is complete.
@@ -196,6 +270,12 @@ class BookmarkOperations(DatabaseCore):
                 if last_tweet_id is not None:
                     updates.append("last_tweet_id = ?")
                     params.append(last_tweet_id)
+                if last_full_sync_date is not None:
+                    updates.append("last_full_sync_date = ?")
+                    params.append(last_full_sync_date)
+                if last_folders_sync_date is not None:
+                    updates.append("last_folders_sync_date = ?")
+                    params.append(last_folders_sync_date)
                 if total_bookmarks is not None:
                     updates.append("total_bookmarks = ?")
                     params.append(total_bookmarks)

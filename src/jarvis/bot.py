@@ -42,6 +42,8 @@ TIME_EXPRESSIONS = {
     "recent",
 }
 
+WEEKLY_RECONCILE_DAYS = 7
+
 
 def build_feedback_keyboard(turn_id: int) -> InlineKeyboardMarkup:
     """Build inline keyboard with thumbs up/down buttons.
@@ -580,6 +582,22 @@ class JarvisBot:
         sync_status = self.db.get_sync_status()
         return not (sync_status and sync_status.get("last_sync_date") == today)
 
+    def _should_run_weekly_reconcile(self) -> bool:
+        """Check if weekly full mirror reconciliation is due."""
+        sync_status = self.db.get_sync_status()
+        if not sync_status:
+            return True
+
+        last_full_sync = sync_status.get("last_full_sync_date")
+        if not last_full_sync:
+            return True
+
+        try:
+            days_since_full = (date.today() - date.fromisoformat(last_full_sync)).days
+            return days_since_full >= WEEKLY_RECONCILE_DAYS
+        except ValueError:
+            return True
+
     async def _run_bookmark_sync(self) -> None:
         """Run bookmark sync."""
         if not self.settings.x_client_id or not self.settings.x_client_secret:
@@ -601,14 +619,20 @@ class JarvisBot:
             token_refresh_buffer_seconds=self.settings.x_token_refresh_buffer_seconds,
         )
 
-        sync_status = self.db.get_sync_status()
-        is_first = not sync_status or not sync_status.get("first_sync_complete")
-
-        result = await sync.sync_bookmarks(full_sync=is_first)
+        run_full_reconcile = self._should_run_weekly_reconcile()
+        result = await sync.sync_bookmarks(
+            full_sync=run_full_reconcile,
+            sync_folders=run_full_reconcile,
+        )
 
         if result.get("status") == "success":
             self.db.update_sync_status(last_sync_date=date.today().isoformat())
-            logger.info("auto_sync_complete", new=result.get("new_bookmarks"))
+            logger.info(
+                "auto_sync_complete",
+                new=result.get("new_bookmarks"),
+                deleted=result.get("deleted_bookmarks"),
+                full_sync=run_full_reconcile,
+            )
 
     async def _send_daily_health_probe(
         self,
@@ -664,9 +688,6 @@ class JarvisBot:
                 self.session_manager.update_session_model(session_id, used_model)
 
             # Build health report
-            # Extract session title from info if available
-            session_title = f"jarvis-user-{user_id}"
-
             health_report = (
                 f"🤖 <b>Jarvis is online!</b>\n\n"
                 f"📊 <b>Session Info:</b>\n"

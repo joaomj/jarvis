@@ -68,6 +68,8 @@ CREATE TABLE IF NOT EXISTS x_sync_status (
     last_sync_date TEXT,
     last_sync_at TIMESTAMP,
     last_tweet_id TEXT,
+    last_full_sync_date TEXT,
+    last_folders_sync_date TEXT,
     total_bookmarks INTEGER DEFAULT 0,
     sync_in_progress BOOLEAN DEFAULT 0,
     first_sync_complete BOOLEAN DEFAULT 0
@@ -152,6 +154,18 @@ class DatabaseCore:
         """Create tables if they don't exist."""
         with sqlite3.connect(self.db_path) as conn:
             conn.executescript(SCHEMA)
+            self._migrate_sync_status_columns(conn)
+
+    def _migrate_sync_status_columns(self, conn: sqlite3.Connection) -> None:
+        """Backfill newer x_sync_status columns for existing databases."""
+        cursor = conn.execute("PRAGMA table_info(x_sync_status)")
+        column_names = {row[1] for row in cursor.fetchall()}
+
+        if "last_full_sync_date" not in column_names:
+            conn.execute("ALTER TABLE x_sync_status ADD COLUMN last_full_sync_date TEXT")
+
+        if "last_folders_sync_date" not in column_names:
+            conn.execute("ALTER TABLE x_sync_status ADD COLUMN last_folders_sync_date TEXT")
 
     def _execute(
         self,

@@ -26,11 +26,38 @@ cp .env.example .env
 # Message @userinfobot on Telegram
 # Copy ID to .env as TELEGRAM_USER_ID
 
-# Start
-docker compose up -d
+# Terminal A: start local OpenCode server (as used in this repo)
+chmod +x scripts/start-opencode.sh
+./scripts/start-opencode.sh
+
+# Terminal B: start Jarvis container
+docker compose up -d jarvis
 
 # Done! Message your bot on Telegram
 ```
+
+## Local Run (OpenCode local + Jarvis Docker)
+
+This is the setup used on this machine:
+
+```bash
+# 1) Start OpenCode server on host
+./scripts/start-opencode.sh
+
+# 2) Start Jarvis in Docker
+docker compose up -d jarvis
+
+# 3) Follow Jarvis logs
+docker logs -f jarvis
+```
+
+To stop:
+
+```bash
+docker compose stop jarvis
+```
+
+Note: `scripts/start-opencode.sh` currently contains local absolute paths. If your workspace path differs, update that script first.
 
 ## Features
 
@@ -88,21 +115,6 @@ Jarvis: 📚 Bookmarks matching "AI" (8 total)
 
 ### Commands
 
-**OpenCode Commands** (forwarded to OpenCode Server):
-| Command | Description |
-|---------|-------------|
-| `/compact` | Compact conversation |
-| `/summarize` | Summarize conversation |
-| `/details` | Show task details |
-| `/export` | Export conversation |
-| `/undo` | Undo last change |
-| `/redo` | Redo last change |
-| `/share` | Share session |
-| `/unshare` | Unshare session |
-| `/thinking` | Toggle thinking display |
-| `/connect` | Connect to repository |
-| `/help` | Show help |
-
 **Local Commands** (handled by Jarvis):
 | Command | Description |
 |---------|-------------|
@@ -111,10 +123,10 @@ Jarvis: 📚 Bookmarks matching "AI" (8 total)
 | `/sessions` | List your sessions |
 | `/model <provider/model>` | Set model directly |
 
-**Native Shortcuts:**
+**OpenCode Commands:**
 - `!models` - Same as `/models`
 - `!favmodels` - Same as `/models`
-- `!<cmd>` - Forward any command to OpenCode
+- `!<cmd>` - Forward any OpenCode command (for example `!undo`, `!compact`, `!share`)
 
 ## Requirements
 
@@ -150,8 +162,9 @@ DATABASE_PATH=.jarvis/jarvis.db
 ENABLE_MESSAGE_AUDIT=true
 LOG_LEVEL=INFO
 
-# X Bookmarks (Optional)
-X_BEARER_TOKEN=your_bearer_token_here          # From developer.twitter.com
+# X Bookmarks (Optional, OAuth 2.0)
+X_CLIENT_ID=your_x_client_id_here
+X_CLIENT_SECRET=your_x_client_secret_here
 ```
 
 See `.env.example` for complete configuration options.

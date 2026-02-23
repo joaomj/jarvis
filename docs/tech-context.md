@@ -47,7 +47,7 @@ Jarvis is a **personal AI assistant accessible via Telegram** that bridges mobil
 
 **X Bookmarks Flow:**
 1. First message of the day triggers auto-sync
-2. Jarvis fetches new bookmarks from X API (incremental since last sync)
+2. Jarvis fetches new bookmarks from X API (daily incremental), with weekly full reconciliation
 3. Bookmarks stored in local SQLite database
 4. User queries via natural language (e.g., "Show me my recent bookmarks")
 5. Jarvis detects bookmark query, searches local DB
@@ -178,18 +178,21 @@ First Message of Day
 [Check Sync Status] - SQLite: x_sync_status.last_sync_date vs today
     ↓ (needs sync)
 [Fetch Bookmarks] - X API (httpx)
-    ├─ First run: fetch all (full sync)
-    └─ Subsequent: fetch since_id (incremental)
+    ├─ Daily: fetch since_id (incremental)
+    └─ Weekly (>= 7 days): fetch all pages (full mirror reconcile)
     ↓
 [Parse & Validate] - Pydantic models (Bookmark, Author, Metrics)
     ↓
 [Store in Database] - SQLite: x_bookmarks table
-    ├─ INSERT OR REPLACE (deduplication)
+    ├─ UPSERT by tweet_id (preserve bookmarked_at, refresh last_synced_at)
+    ├─ Weekly full reconcile prunes rows not returned by X API
     └─ Indexes: bookmarked_at, created_at
     ↓
 [Update Sync Status] - SQLite: x_sync_status
     ├─ last_sync_date = today
     ├─ last_tweet_id = newest_id
+    ├─ last_full_sync_date = date of last weekly full reconcile
+    ├─ last_folders_sync_date = date of last folder refresh
     └─ total_bookmarks = count
     ↓
 [Continue User Message] - Process normally via OpenCode
@@ -198,7 +201,7 @@ First Message of Day
 **Metrics:**
 - **HOW**: Timestamps logged at start/end, bookmark counts tracked
 - **WHY**: Monitor sync performance, detect rate limit issues
-- **WHAT**: Typical sync: 100-500 bookmarks in 10-30s (depends on API limits)
+- **WHAT**: Daily incremental is usually 0-1 API calls; weekly full reconcile fetches all pages
 - **WHERE**: Logged as "sync_completed" with new_bookmarks, total_bookmarks
 
 ### Data Flow: X Bookmarks Query
@@ -320,8 +323,8 @@ User Query (Telegram) - "What did I save last week?"
 │  Bookmarks       │             │    (sync.py)       │
 │  Client         │             │                    │
 │ (bookmarks/     │             │ - Auto-sync        │
-│  client.py)     │             │ - Incremental      │
-│  + parser.py    │             │ - Error handling   │
+│  client.py)     │             │ - Daily incremental│
+│  + parser.py    │             │ - Weekly reconcile │
 └────────┬────────┘             └─────────┬───────────┘
          │                               │
          ▼                               ▼
@@ -337,64 +340,6 @@ User Query (Telegram) - "What did I save last week?"
          ▼                     └────────────────────┘
    (External X API)
 ```
-┌─────────────────────────────────────────────────────────┐
-│                   Telegram Bot                         │
-│            (python-telegram-bot 21+)                  │
-└────────────────────┬────────────────────────────────┘
-                     │
-                     ▼
-         ┌───────────────────────┐
-         │    Jarvis Bot         │
-         │  (bot.py)            │
-         │  - Polling Engine    │
-         │  - Command Router    │
-         │  - Query Detector    │
-         └───────────┬───────────┘
-                     │
-         ┌───────────┴───────────┐
-         ▼                       ▼
-┌──────────────────┐    ┌────────────────────┐
-│ Command Router   │    │ Query Detector    │
-│                 │    │                  │
-│ - Blocked       │    │ - Is bookmark?   │
-│ - Bridge-native │    │ - Time range?    │
-│ - Intercept     │    │ - Parse query    │
-│ - Pass-through  │    └────────┬─────────┘
-└───────┬─────────┘             │
-        │                       │
-        │ Regular Chat           │ Bookmarks
-        ▼                       │
-┌──────────────────┐             │
-│ OpenCode Client  │             ▼
-│ (httpx)         │    ┌────────────────────┐
-│                 │    │  Bookmarks Sync    │
-└───────┬─────────┘    │  (sync.py)        │
-        │               │                    │
-        ▼               │ - Auto-sync        │
-┌──────────────────┐    │ - Incremental     │
-│ OpenCode Server  │    │ - Error handling  │
-│                 │    └─────────┬──────────┘
-│ - LLM inference  │              │
-│ - File ops      │              ▼
-│ - Git ops      │    ┌────────────────────┐
-│ - Bash cmds    │    │  X API Client     │
-└──────────────────┘    │  (httpx)          │
-                       │                    │
-                       │ - Pagination       │
-                       │ - Rate limiting    │
-                       │ - OAuth 2.0       │
-                       └─────────┬──────────┘
-                                ▼
-                      ┌────────────────────┐
-                      │  SQLite Database   │
-                      │                  │
-                      │ - x_bookmarks    │
-                      │ - x_sync_status  │
-                      │ - responses      │
-                      │ - users          │
-                      └──────────────────┘
-```
-
 ---
 
 ## Tech Context
@@ -482,22 +427,25 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 
 **HOW**:
 - Trigger: First Telegram message of each day
-- Mode: Full sync on first run, incremental sync thereafter
-- Pagination: Uses `since_id` parameter to fetch only new bookmarks
-- Status tracking: `x_sync_status` table stores last_sync_date, last_tweet_id, total_bookmarks
+- Mode: Daily incremental sync + weekly full mirror reconcile (>=7 days)
+- Pagination: Daily uses `since_id`; weekly full reconcile paginates all bookmarks
+- Folder sync: Folder assignments are rebuilt weekly during full reconcile
+- Payload minimization: bookmark fetch requests only `id`, `text`, `created_at`, and `author.username`
+- Status tracking: `x_sync_status` stores last_sync_date, last_tweet_id, last_full_sync_date, last_folders_sync_date, total_bookmarks
 - Authentication: OAuth 2.0 tokens auto-refresh when expired
 
 **WHY**:
 - Daily sync balances freshness vs. API cost ($0.005/request)
-- Incremental sync avoids re-fetching entire bookmark collection
+- Incremental sync minimizes daily API usage
+- Weekly full reconcile keeps local DB as a true mirror (handles deletions/unbookmarks)
 - On-message trigger eliminates background scheduler complexity
 - Status tracking enables idempotent syncs (retry-safe)
 - Token refresh ensures continuous access without re-authorization
 
 **WHAT**:
-- Typical sync: 10-30 seconds for 100-500 bookmarks
-- Cost: ~$0.50 per 100-bookmark sync ($0.005 per bookmark)
-- Sync frequency: Once per day
+- Daily sync is optimized for low cost by fetching only new bookmarks
+- Weekly full reconcile cost scales with total bookmarks and folder pagination
+- Sync frequency: Daily incremental + weekly full reconcile
 
 **WHERE**:
 - Sync logic: `src/jarvis/bookmarks/sync.py`
@@ -551,7 +499,8 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 - `created_at`, `updated_at` (TIMESTAMP) - Token metadata
 
 **x_bookmarks table:**
-- `tweet_id` (TEXT UNIQUE, PRIMARY KEY) - Tweet unique identifier
+- `id` (INTEGER PRIMARY KEY AUTOINCREMENT) - Internal row ID
+- `tweet_id` (TEXT UNIQUE NOT NULL) - Tweet unique identifier
 - `author_username`, `author_name`, `author_verified` - Author info
 - `text` (TEXT NOT NULL) - Tweet content
 - `created_at`, `bookmarked_at` (TIMESTAMP) - Time metadata
@@ -559,14 +508,29 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 - `like_count`, `retweet_count`, `reply_count`, `impression_count`, `bookmark_count` (INTEGER) - Engagement metrics
 - `media_urls` (TEXT) - JSON array of media URLs
 - `urls_expanded` (TEXT) - JSON array of expanded URLs
-- `context_annotations` (TEXT) - JSON array of context annotations (future topic filtering)
-- `raw_json` (TEXT) - Full tweet data for future use
+- `context_annotations` (TEXT) - JSON array of context annotations (legacy/optional)
+- `raw_json` (TEXT) - Raw payload snapshot for troubleshooting
+- `last_synced_at` (TIMESTAMP) - Last successful sync timestamp for this bookmark
+
+**x_bookmark_folders table:**
+- `folder_id` (TEXT PRIMARY KEY) - Folder ID from X API
+- `folder_name` (TEXT NOT NULL) - Folder display name
+- `created_at` (TIMESTAMP) - First time seen locally
+
+**x_bookmark_folder_assignments table:**
+- `tweet_id` (TEXT NOT NULL) - Bookmark tweet ID
+- `folder_id` (TEXT NOT NULL) - Folder ID
+- `assigned_at` (TIMESTAMP) - Assignment sync timestamp
+- Composite primary key `(tweet_id, folder_id)`
+- Foreign keys to `x_bookmarks(tweet_id)` and `x_bookmark_folders(folder_id)` with cascade delete
 
 **x_sync_status table:**
 - `id` (INTEGER PRIMARY KEY CHECK (id = 1)) - Single row
 - `last_sync_date` (TEXT) - ISO date string of last sync (YYYY-MM-DD)
 - `last_sync_at` (TIMESTAMP) - Full timestamp of last sync
 - `last_tweet_id` (TEXT) - Most recent tweet ID synced
+- `last_full_sync_date` (TEXT) - Last weekly full mirror reconcile date
+- `last_folders_sync_date` (TEXT) - Last folder membership refresh date
 - `total_bookmarks` (INTEGER) - Total count of bookmarks in DB
 - `sync_in_progress` (BOOLEAN) - Prevents concurrent syncs
 - `first_sync_complete` (BOOLEAN) - Distinguishes first run from subsequent runs
@@ -574,6 +538,8 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 **Indexes:**
 - `idx_bookmarks_bookmarked_at` on `x_bookmarks(bookmarked_at)` - Fast time-range queries
 - `idx_bookmarks_created_at` on `x_bookmarks(created_at)` - Fast tweet creation queries
+- `idx_bookmark_folders_tweet_id` on `x_bookmark_folder_assignments(tweet_id)` - Fast export by tweet
+- `idx_bookmark_folders_folder_id` on `x_bookmark_folder_assignments(folder_id)` - Fast export by folder
 
 ### Error Handling Strategy
 

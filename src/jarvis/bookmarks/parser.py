@@ -82,13 +82,18 @@ def parse_bookmark(tweet_data: dict[str, Any], users: dict[str, dict]) -> Bookma
 
     text = tweet_data.get("text", "")
 
+    if author.username:
+        tweet_url = f"https://x.com/{author.username}/status/{tweet_id}"
+    else:
+        tweet_url = f"https://x.com/i/web/status/{tweet_id}"
+
     return Bookmark(
         tweet_id=tweet_id,
         author=author,
         text=text,
         note_text=None,
         created_at=created_at,
-        tweet_url=f"https://twitter.com/{author.username}/status/{tweet_id}",
+        tweet_url=tweet_url,
         metrics=metrics,
         media_urls=media_urls,
         urls_expanded=urls_expanded,
