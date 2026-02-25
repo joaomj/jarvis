@@ -3,14 +3,21 @@ name: CI
 on:
   push:
     branches:
-      - "**"
+      - ${{ github.default_branch }}
   pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
 
 jobs:
   test:
     runs-on: ubuntu-latest
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         python-version: ["3.11", "3.12"]
 
@@ -18,13 +25,12 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up PDM
+        uses: pdm-project/setup-pdm@v4
         with:
           python-version: ${{ matrix.python-version }}
-
-      - name: Install PDM
-        run: pip install pdm
+          cache: true
+          cache-dependency-path: pdm.lock
 
       - name: Install dependencies
         run: pdm install -G dev
@@ -41,8 +47,5 @@ jobs:
       - name: Install pre-commit
         run: pip install pre-commit
 
-      - name: Gitleaks scan
-        run: pre-commit run gitleaks --all-files
-
-      - name: Hadolint scan
-        run: pre-commit run hadolint --all-files
+      - name: Run pre-commit hooks
+        run: pre-commit run --all-files --show-diff-on-failure

@@ -128,6 +128,7 @@ From all those cases, the most urgent i want to solve is the one about summarizi
 - [Langchain - why multiagents?](https://github.com/langchain-ai/docs/blob/main/src/oss/langchain/multi-agent/index.mdx)
 - [Skill - logging best practices](https://gist.github.com/jsadoski-rockhall/4e3450c1c633902a49c0a7d8d857bd91)
 - [the engineering behind clawdbot](https://x.com/Hesamation/status/2017038553058857413)
+- This is the closest implementation to what i want: `https://github.com/grinev/opencode-telegram-bot`
 
 ### Books and Scientific Papers for free
 - [Annas Archive API](https://annas-archive.li/faq#api): 
