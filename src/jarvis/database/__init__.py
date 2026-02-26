@@ -6,6 +6,7 @@ The Database class is composed of mixins for each domain:
 - UserOperations: Authorization and state management
 - MessageOperations: Audit trail and response logging
 - BookmarkOperations: X bookmark storage
+- KBStorageOperations: URL knowledge-base indexing/search
 - OAuthOperations: OAuth token storage
 """
 
@@ -14,6 +15,7 @@ from pathlib import Path
 
 from jarvis.database.bookmarks import BookmarkOperations
 from jarvis.database.feedback import FeedbackOperations
+from jarvis.database.kb_storage_ops import KBStorageOperations
 from jarvis.database.messages import MessageOperations
 from jarvis.database.oauth import OAuthOperations
 from jarvis.database.sessions import SessionOperations
@@ -31,6 +33,7 @@ class Database(
     OAuthOperations,
     FeedbackOperations,
     SessionOperations,
+    KBStorageOperations,
 ):
     """SQLite database manager combining all domain operations."""
 

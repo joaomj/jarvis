@@ -140,6 +140,51 @@ CREATE TABLE IF NOT EXISTS opencode_sessions (
 
 CREATE INDEX IF NOT EXISTS idx_sessions_user_date ON opencode_sessions(telegram_user_id, date_key);
 CREATE INDEX IF NOT EXISTS idx_sessions_opencode_id ON opencode_sessions(opencode_session_id);
+
+CREATE TABLE IF NOT EXISTS kb_documents (
+    id INTEGER PRIMARY KEY,
+    markdown_path TEXT UNIQUE NOT NULL,
+    url_original TEXT,
+    url_canonical TEXT,
+    title TEXT,
+    domain TEXT,
+    captured_at TEXT,
+    content_hash TEXT NOT NULL,
+    status TEXT NOT NULL DEFAULT 'indexed',
+    indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    last_error TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_kb_documents_url_canonical ON kb_documents(url_canonical);
+CREATE INDEX IF NOT EXISTS idx_kb_documents_indexed_at ON kb_documents(indexed_at);
+
+CREATE TABLE IF NOT EXISTS kb_chunks (
+    id INTEGER PRIMARY KEY,
+    document_id INTEGER NOT NULL,
+    chunk_index INTEGER NOT NULL,
+    heading TEXT,
+    line_start INTEGER NOT NULL,
+    line_end INTEGER NOT NULL,
+    chunk_text TEXT NOT NULL,
+    UNIQUE(document_id, chunk_index),
+    FOREIGN KEY (document_id) REFERENCES kb_documents(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_kb_chunks_document_chunk ON kb_chunks(document_id, chunk_index);
+
+CREATE VIRTUAL TABLE IF NOT EXISTS kb_chunks_fts USING fts5(
+    chunk_text,
+    heading,
+    chunk_id UNINDEXED,
+    document_id UNINDEXED
+);
+
+CREATE TABLE IF NOT EXISTS kb_ingest_log (
+    id INTEGER PRIMARY KEY,
+    markdown_path TEXT NOT NULL,
+    error TEXT NOT NULL,
+    logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
 """
 
 
