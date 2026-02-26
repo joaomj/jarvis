@@ -10,13 +10,16 @@ from typing import Any
 
 from telegram import Update
 
-from jarvis.bot_constants import SAVE_INTENT_KEYWORDS
+from jarvis.bot_constants import KB_QUERY_KEYWORDS, SAVE_INTENT_KEYWORDS
 from jarvis.kb_indexer import KBIndexer
+from jarvis.kb_prompting import build_grounded_prompt, format_source_list
+from jarvis.kb_retrieval import retrieve_chunks
 from jarvis.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 URL_RE = re.compile(r"https?://[^\s<>()]+", re.IGNORECASE)
+CITATION_RE = re.compile(r"\[doc:\d+\s+chunk:\d+\]")
 
 
 class BotKBMixin:
@@ -62,6 +65,13 @@ class BotKBMixin:
 
         lowered = candidate.lower()
         return any(keyword in lowered for keyword in SAVE_INTENT_KEYWORDS)
+
+    def _is_kb_answer_intent(self, text: str) -> bool:
+        """Detect when user asks for answer grounded in saved KB content."""
+        lowered = text.strip().lower()
+        if not lowered:
+            return False
+        return any(keyword in lowered for keyword in KB_QUERY_KEYWORDS)
 
     def _extract_urls(self, text: str) -> list[str]:
         return URL_RE.findall(text)
@@ -139,6 +149,66 @@ class BotKBMixin:
             f"Indexed {result.indexed_files}, skipped {result.skipped_files}, failed {result.failed_files}."
         )
         await self.app.bot.send_message(chat_id=pending.chat_id, text=confirmation)
+
+    async def _handle_kb_answer_intent(
+        self,
+        user_id: int,
+        session_id: str,
+        text: str,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Retrieve KB context and request a grounded cited answer."""
+        if not self.kb_indexer or not self.opencode:
+            return self._insufficient_evidence_result()
+
+        self._refresh_kb_index_if_stale()
+
+        max_chunks = int(getattr(self.settings, "kb_max_chunks_per_query", 6))
+        chunks = retrieve_chunks(self.db, text, limit=max_chunks)
+        if not chunks:
+            return self._insufficient_evidence_result()
+
+        selected_model = None
+        if self.model_selector:
+            selected_model = self.model_selector.get_model_for_user(user_id)
+
+        prompt = build_grounded_prompt(text, chunks)
+        parts, info = await self.opencode.send_message(session_id, prompt, model=selected_model)
+        answer_text = "\n".join(
+            part.get("text", "") for part in parts if part.get("type") == "text"
+        ).strip()
+        if not answer_text or not CITATION_RE.search(answer_text):
+            logger.warning("kb_answer_missing_citations", session_id=session_id)
+            return self._insufficient_evidence_result()
+
+        sources = format_source_list(chunks)
+        final_text = f"{answer_text}\n\nSources:\n{sources}" if sources else answer_text
+        return ([{"type": "text", "text": final_text}], info)
+
+    def _refresh_kb_index_if_stale(self) -> None:
+        if not self.kb_indexer:
+            return
+        stale_seconds = int(getattr(self.settings, "kb_rescan_stale_seconds", 300))
+        age_seconds = self.kb_indexer.last_scan_age_seconds()
+        if age_seconds is not None and age_seconds <= stale_seconds:
+            return
+        result = self.kb_indexer.index_all()
+        logger.info(
+            "kb_rescan_complete",
+            scanned_files=result.scanned_files,
+            indexed_files=result.indexed_files,
+            skipped_files=result.skipped_files,
+            failed_files=result.failed_files,
+        )
+
+    def _insufficient_evidence_result(self) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        text = (
+            "I do not have enough evidence in your saved articles to answer that confidently. "
+            "Try saving more sources or narrowing the question."
+        )
+        return (
+            [{"type": "text", "text": text}],
+            {"providerID": "jarvis", "modelID": "kb-local", "agent": "kb"},
+        )
 
     def _build_save_prompt(self, original_text: str, urls: list[str]) -> str:
         urls_text = "\n".join(f"- {url}" for url in urls)

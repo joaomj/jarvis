@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import urlparse, urlunparse
 
 from jarvis.database import Database
+from jarvis.database.kb_storage_ops import KBChunkRow
 from jarvis.kb_chunking import chunk_markdown
 from jarvis.logging_config import get_logger
 
@@ -55,9 +56,7 @@ class KBIndexer:
 
     def index_all(self) -> KBIndexResult:
         """Scan and index all markdown files."""
-        result = self.index_paths(self.list_markdown_files())
-        self._last_scan_at = datetime.now(UTC)
-        return result
+        return self.index_paths(self.list_markdown_files())
 
     def index_paths(self, paths: list[Path]) -> KBIndexResult:
         """Index specific markdown files, continuing through partial failures."""
@@ -77,6 +76,7 @@ class KBIndexer:
                 self._db.log_ingest_error(str(path), str(error))
                 logger.warning("kb_index_file_failed", path=str(path), error=str(error))
 
+        self._last_scan_at = datetime.now(UTC)
         return KBIndexResult(
             scanned_files=len(paths),
             indexed_files=indexed,
@@ -115,14 +115,14 @@ class KBIndexer:
             last_error=None,
         )
 
-        chunks = [
-            {
-                "chunk_index": chunk.chunk_index,
-                "heading": chunk.heading,
-                "line_start": chunk.line_start,
-                "line_end": chunk.line_end,
-                "chunk_text": chunk.chunk_text,
-            }
+        chunks: list[KBChunkRow] = [
+            KBChunkRow(
+                chunk_index=chunk.chunk_index,
+                heading=chunk.heading,
+                line_start=chunk.line_start,
+                line_end=chunk.line_end,
+                chunk_text=chunk.chunk_text,
+            )
             for chunk in chunk_markdown(body, self._chunk_size_chars)
             if chunk.chunk_text
         ]

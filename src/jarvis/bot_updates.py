@@ -17,7 +17,7 @@ logger = get_logger(__name__)
 class BotUpdateMixin:
     """Methods that process inbound Telegram updates."""
 
-    async def _process_input(  # noqa: PLR0911
+    async def _process_input(  # noqa: PLR0911, PLR0912
         self,
         update: Update,
         user_id: int,
@@ -46,6 +46,9 @@ class BotUpdateMixin:
             update, user_id, session_id, text
         ):
             return None
+
+        if self._is_kb_answer_intent(text):
+            return await self._handle_kb_answer_intent(user_id, session_id, text)
 
         if self._is_bookmark_query(text) and await self._handle_bookmark_query(update, text):
             return None

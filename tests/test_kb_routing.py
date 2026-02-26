@@ -8,6 +8,7 @@ import pytest
 
 from jarvis.bot import JarvisBot
 from jarvis.config import Settings
+from jarvis.kb_retrieval import RetrievedChunk
 
 
 @pytest.fixture
@@ -60,3 +61,67 @@ async def test_process_input_prefers_save_handler_for_save_intent(settings) -> N
 
     assert result is None
     bot._handle_save_intent.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_process_input_routes_kb_questions_before_bookmarks(settings) -> None:
+    bot = JarvisBot(settings)
+    bot.model_selector = None
+    bot.events.handle_interaction_input = AsyncMock(return_value=False)
+    bot._is_save_intent = MagicMock(return_value=False)
+    bot._is_kb_answer_intent = MagicMock(return_value=True)
+    bot._handle_kb_answer_intent = AsyncMock(return_value=([{"type": "text", "text": "ok"}], {}))
+    bot._is_bookmark_query = MagicMock(return_value=True)
+
+    update = MagicMock()
+    update.effective_message.chat_id = 100
+    update.effective_message.message_id = 200
+
+    result = await bot._process_input(
+        update,
+        user_id=123,
+        session_id="sess-2",
+        text="considering my knowledge base, what is this?",
+    )
+
+    assert result == ([{"type": "text", "text": "ok"}], {})
+    bot._handle_kb_answer_intent.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_kb_answer_without_citations_returns_insufficient_evidence(
+    settings, monkeypatch
+) -> None:
+    bot = JarvisBot(settings)
+    bot.model_selector = None
+    bot.opencode = MagicMock()
+    bot.opencode.send_message = AsyncMock(
+        return_value=([{"type": "text", "text": "Here is an answer with no citations."}], {})
+    )
+
+    monkeypatch.setattr(
+        "jarvis.bot_kb.retrieve_chunks",
+        lambda *_args, **_kwargs: [
+            RetrievedChunk(
+                document_id=1,
+                chunk_index=0,
+                heading="Intro",
+                line_start=1,
+                line_end=2,
+                chunk_text="SQLite keeps lexical chunks.",
+                title="Doc",
+                url_original="https://example.com",
+                markdown_path=".jarvis/url-saves/doc.md",
+                score=-1.0,
+            )
+        ],
+    )
+
+    parts, _info = await bot._handle_kb_answer_intent(
+        user_id=123,
+        session_id="sess-3",
+        text="from what I saved, explain indexing",
+    )
+
+    text = parts[0]["text"].lower()
+    assert "do not have enough evidence" in text
