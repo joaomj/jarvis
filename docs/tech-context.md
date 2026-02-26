@@ -252,6 +252,62 @@ User Query (Telegram) - "What did I save last week?"
 - **WHAT**: Typical query: <100ms for 1000 bookmarks
 - **WHERE**: Logged as "query_bookmarks" with results count, execution_time
 
+### Data Flow: URL Save + Knowledge Base Index
+
+```
+User Message - URL only or "save/scrape/read later" + URL
+    ↓
+[Save Intent Detection] - URL regex + keyword match
+    ↓ (match)
+[OpenCode Delegation]
+    ├─ Prompt asks existing Firecrawl workflow to scrape URL
+    └─ Writes markdown files into `.jarvis/url-saves/`
+    ↓
+[Assistant Completion Event]
+    ↓
+[KB Reindex Trigger]
+    ├─ Targeted scan for new markdown paths
+    ├─ Frontmatter parse (`url`, `title`, `captured_at`, ...)
+    ├─ Chunk by headings + max chars
+    └─ Upsert docs/chunks + FTS rows in SQLite
+    ↓
+[User Confirmation] - indexed/skipped/failed counters
+```
+
+### Data Flow: Grounded KB Answers
+
+```
+User Message - "considering my knowledge base ..."
+    ↓
+[KB Intent Detection] - keyword match
+    ↓
+[Staleness Check]
+    ├─ If index older than threshold, rescan markdown files
+    └─ Otherwise use current index
+    ↓
+[Lexical Retrieval]
+    ├─ Build safe FTS query from question tokens
+    ├─ Retrieve top chunks from `kb_chunks_fts`
+    └─ Apply per-document diversity cap
+    ↓
+[Grounded Prompt to OpenCode]
+    ├─ Strict "context only" instructions
+    ├─ Citation format required: `[doc:<id> chunk:<index>]`
+    └─ If citations missing, treat as insufficient evidence
+    ↓
+[Telegram Response]
+    ├─ Direct answer with inline citations
+    └─ Compact source list (title + URL/path)
+```
+
+### Knowledge Base Schema (SQLite)
+
+- `kb_documents`: metadata + content hash per markdown file (`markdown_path` unique)
+- `kb_chunks`: deterministic chunk rows per document (`document_id`, `chunk_index` unique)
+- `kb_chunks_fts`: FTS5 lexical index over `chunk_text` and `heading`
+- `kb_ingest_log`: non-fatal ingest errors per file for observability
+- Indexes: `kb_documents(url_canonical)`, `kb_documents(indexed_at)`, `kb_chunks(document_id, chunk_index)`
+
 ### State Machine: Bookmark Sync Lifecycle
 
 ```

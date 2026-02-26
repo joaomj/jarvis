@@ -126,6 +126,24 @@ class Settings(BaseSettings):
         description="Max characters to show per bookmark in list",
     )
 
+    # URL knowledge base settings
+    kb_content_dir: str = Field(
+        default=".jarvis/url-saves",
+        description="Directory containing saved markdown knowledge-base content",
+    )
+    kb_max_chunks_per_query: int = Field(
+        default=6,
+        description="Max retrieved chunks to include in grounded KB answers",
+    )
+    kb_rescan_stale_seconds: int = Field(
+        default=300,
+        description="Rescan KB content before retrieval when index age exceeds this threshold",
+    )
+    kb_chunk_size_chars: int = Field(
+        default=1800,
+        description="Maximum chunk size (in characters) for KB indexing",
+    )
+
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
@@ -173,6 +191,20 @@ class Settings(BaseSettings):
     def expand_favorite_models_path(cls, v: str) -> str:
         """Expand user home in favorite models path."""
         return str(Path(v).expanduser())
+
+    @field_validator("kb_content_dir")
+    @classmethod
+    def expand_kb_content_dir(cls, v: str) -> str:
+        """Expand user home in KB content directory path."""
+        return str(Path(v).expanduser())
+
+    @field_validator("kb_max_chunks_per_query", "kb_rescan_stale_seconds", "kb_chunk_size_chars")
+    @classmethod
+    def validate_positive_kb_values(cls, v: int) -> int:
+        """Validate KB numeric settings are positive."""
+        if v <= 0:
+            raise ValueError(f"KB setting value must be positive, got {v}")
+        return v
 
 
 def get_settings() -> Settings:

@@ -212,10 +212,11 @@ class BotKBMixin:
 
     def _build_save_prompt(self, original_text: str, urls: list[str]) -> str:
         urls_text = "\n".join(f"- {url}" for url in urls)
+        content_dir = getattr(self.settings, "kb_content_dir", ".jarvis/url-saves")
         return (
             "Scrape this URL and save it as markdown for my local knowledge base.\n"
             "Use the existing firecrawl scraping workflow.\n"
-            "Write files under .jarvis/url-saves/.\n"
+            f"Write files under {content_dir}/.\n"
             "Use YAML frontmatter with: url, title, captured_at (and author/published/description when available).\n"
             f"User request: {original_text}\n"
             f"URLs:\n{urls_text}"

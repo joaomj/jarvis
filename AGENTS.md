@@ -51,7 +51,7 @@ If no skill pattern matches, respond normally:
 
 | Resource | Path | Description |
 |----------|------|-------------|
-| X Bookmarks Database | `~/.local/share/jarvis/jarvis.db` | SQLite database with saved tweets |
+| X Bookmarks Database | `.jarvis/jarvis.db` | SQLite database with saved tweets |
 
 ## Behavior Guidelines
 
