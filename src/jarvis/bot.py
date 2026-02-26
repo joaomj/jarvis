@@ -6,6 +6,7 @@ from telegram.ext import Application
 
 from jarvis.bot_bookmarks import BotBookmarksMixin
 from jarvis.bot_feedback import BotFeedbackMixin
+from jarvis.bot_kb import BotKBMixin
 from jarvis.bot_updates import BotUpdateMixin
 from jarvis.config import Settings
 from jarvis.database import Database
@@ -21,7 +22,7 @@ from jarvis.session_manager import SessionManager
 logger = get_logger(__name__)
 
 
-class JarvisBot(BotUpdateMixin, BotBookmarksMixin, BotFeedbackMixin):
+class JarvisBot(BotUpdateMixin, BotKBMixin, BotBookmarksMixin, BotFeedbackMixin):
     """Telegram bot with polling support."""
 
     def __init__(self, settings: Settings):
@@ -37,6 +38,8 @@ class JarvisBot(BotUpdateMixin, BotBookmarksMixin, BotFeedbackMixin):
             message_content_max_length=settings.db_message_content_max_length,
             response_cleanup_days=settings.db_response_cleanup_days,
         )
+        self.kb_indexer = None
+        self._initialize_kb_state()
         self.events = EventProcessor(self)
         self.models = ModelsManager(settings.favorite_models_path)
         self._running = False
@@ -77,6 +80,7 @@ class JarvisBot(BotUpdateMixin, BotBookmarksMixin, BotFeedbackMixin):
             max_backoff_level=self.settings.polling_max_backoff_level,
             max_backoff_seconds=self.settings.polling_max_backoff_seconds,
         )
+        self._run_kb_startup_scan()
         logger.info("bot_application_initialized")
 
     async def shutdown(self) -> None:

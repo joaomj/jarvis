@@ -27,6 +27,8 @@ class PendingPrompt:
     chat_id: int
     in_message_id: int
     prompt_text: str
+    kind: str = "default"
+    known_markdown_paths: tuple[str, ...] = ()
 
 
 class EventProcessor:
@@ -69,6 +71,8 @@ class EventProcessor:
         in_message_id: int,
         prompt_text: str,
         session_title: str,
+        kind: str = "default",
+        known_markdown_paths: tuple[str, ...] = (),
     ) -> None:
         """Register an async prompt waiting for assistant completion."""
         self._pending_by_session[session_id] = PendingPrompt(
@@ -76,6 +80,8 @@ class EventProcessor:
             chat_id=chat_id,
             in_message_id=in_message_id,
             prompt_text=prompt_text,
+            kind=kind,
+            known_markdown_paths=known_markdown_paths,
         )
         self._pinned.set_chat(chat_id)
         self._pinned.on_session(session_id=session_id, session_title=session_title)
@@ -160,6 +166,8 @@ class EventProcessor:
 
         self._pending_by_session.pop(session_id, None)
         await self._send_completed_response(session_id, pending)
+        if pending.kind == "save":
+            await self._bot._on_save_completed(pending)
 
     async def _send_completed_response(self, session_id: str, pending: PendingPrompt) -> None:
         if not self._bot.opencode or not self._bot.app:

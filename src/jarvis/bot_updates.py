@@ -39,10 +39,15 @@ class BotUpdateMixin:
                 )
             return None
 
-        if self._is_bookmark_query(text) and await self._handle_bookmark_query(update, text):
+        if await self.events.handle_interaction_input(update, user_id, text):
             return None
 
-        if await self.events.handle_interaction_input(update, user_id, text):
+        if self._is_save_intent(text) and await self._handle_save_intent(
+            update, user_id, session_id, text
+        ):
+            return None
+
+        if self._is_bookmark_query(text) and await self._handle_bookmark_query(update, text):
             return None
 
         if not self.opencode:

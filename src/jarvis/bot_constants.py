@@ -3,12 +3,29 @@
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup
 
 BOOKMARK_KEYWORDS = {
-    "saved",
+    "what did i save",
+    "from my saved",
+    "my saved",
     "bookmarked",
     "my tweets",
     "my bookmarks",
     "saved posts",
+}
+
+SAVE_INTENT_KEYWORDS = {
     "save",
+    "scrape",
+    "read later",
+    "knowledge base",
+    "add to knowledge base",
+}
+
+KB_QUERY_KEYWORDS = {
+    "considering my knowledge base",
+    "from what i saved",
+    "from my saved articles",
+    "knowledge base",
+    "saved articles",
 }
 
 TIME_EXPRESSIONS = {
