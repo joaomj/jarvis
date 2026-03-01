@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from telegram.ext import Application
 
+from jarvis.bot_attachments import BotAttachmentsMixin
 from jarvis.bot_bookmarks import BotBookmarksMixin
 from jarvis.bot_feedback import BotFeedbackMixin
 from jarvis.bot_kb import BotKBMixin
@@ -23,7 +24,14 @@ from jarvis.session_manager import SessionManager
 logger = get_logger(__name__)
 
 
-class JarvisBot(BotUpdateMixin, BotKBMixin, BotBookmarksMixin, BotMemoryMixin, BotFeedbackMixin):
+class JarvisBot(
+    BotUpdateMixin,
+    BotKBMixin,
+    BotBookmarksMixin,
+    BotAttachmentsMixin,
+    BotMemoryMixin,
+    BotFeedbackMixin,
+):
     """Telegram bot with polling support."""
 
     def __init__(self, settings: Settings):

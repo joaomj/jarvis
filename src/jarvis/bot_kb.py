@@ -14,6 +14,7 @@ from jarvis.bot_constants import KB_QUERY_KEYWORDS, SAVE_INTENT_KEYWORDS
 from jarvis.kb_indexer import KBIndexer
 from jarvis.kb_prompting import build_grounded_prompt, format_source_list
 from jarvis.kb_retrieval import retrieve_chunks
+from jarvis.kb_web_fallback import build_web_fallback_answer
 from jarvis.logging_config import get_logger
 
 logger = get_logger(__name__)
@@ -165,7 +166,7 @@ class BotKBMixin:
         max_chunks = int(getattr(self.settings, "kb_max_chunks_per_query", 6))
         chunks = retrieve_chunks(self.db, text, limit=max_chunks)
         if not chunks:
-            return self._insufficient_evidence_result()
+            return await self._handle_web_fallback_answer(user_id, session_id, text)
 
         selected_model = None
         if self.model_selector:
@@ -183,6 +184,25 @@ class BotKBMixin:
         sources = format_source_list(chunks)
         final_text = f"{answer_text}\n\nSources:\n{sources}" if sources else answer_text
         return ([{"type": "text", "text": final_text}], info)
+
+    async def _handle_web_fallback_answer(
+        self,
+        user_id: int,
+        session_id: str,
+        question: str,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Use web-search agent when local evidence is insufficient."""
+        if not self.opencode:
+            return self._insufficient_evidence_result()
+
+        result = await build_web_fallback_answer(
+            opencode=self.opencode,
+            model_selector=self.model_selector,
+            user_id=user_id,
+            session_id=session_id,
+            question=question,
+        )
+        return result if result else self._insufficient_evidence_result()
 
     def _refresh_kb_index_if_stale(self) -> None:
         if not self.kb_indexer:

@@ -125,3 +125,40 @@ async def test_kb_answer_without_citations_returns_insufficient_evidence(
 
     text = parts[0]["text"].lower()
     assert "do not have enough evidence" in text
+
+
+@pytest.mark.asyncio
+async def test_kb_answer_falls_back_to_web_when_local_missing(settings, monkeypatch) -> None:
+    """When local retrieval is empty, bot can return sourced web fallback answer."""
+    bot = JarvisBot(settings)
+    bot.model_selector = None
+    bot.opencode = MagicMock()
+    bot.opencode.send_message = AsyncMock(
+        side_effect=[
+            (
+                [
+                    {
+                        "type": "text",
+                        "text": '{"sources":[{"title":"Federalist Papers","url":"https://example.com/fed","why_relevant":"primary source"}]}',
+                    }
+                ],
+                {},
+            ),
+            (
+                [{"type": "text", "text": "Factions are discussed as a core risk [web:1]."}],
+                {},
+            ),
+        ]
+    )
+
+    monkeypatch.setattr("jarvis.bot_kb.retrieve_chunks", lambda *_args, **_kwargs: [])
+
+    parts, _info = await bot._handle_kb_answer_intent(
+        user_id=123,
+        session_id="sess-web-fallback",
+        text="what does federalist papers say about factions?",
+    )
+
+    text = parts[0]["text"]
+    assert "[web:1]" in text
+    assert "Sources:" in text

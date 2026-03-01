@@ -128,7 +128,7 @@ class BotUpdateMixin:
 
         return response_parts, info
 
-    async def _handle_update(self, update: Update) -> None:  # noqa: PLR0911
+    async def _handle_update(self, update: Update) -> None:  # noqa: PLR0911, PLR0912
         """Process single update from polling."""
         if update.callback_query:
             if await self.events.handle_callback(update):
@@ -143,6 +143,10 @@ class BotUpdateMixin:
         self.events.remember_chat(update.effective_message.chat_id)
         if not self._is_authorized(user_id):
             logger.warning("unauthorized", user_id=user_id, text=text[:50])
+            return
+
+        attachment_result = await self._ingest_attachment_if_present(update)
+        if await self._handle_attachment_only_message(update, attachment_result, text):
             return
 
         is_private = self._is_private_intent(text)
@@ -183,6 +187,28 @@ class BotUpdateMixin:
         if persist and self.settings.enable_message_audit:
             self.db.log_message(user_id, "in", text)
         logger.info("message_received", user_id=user_id, text=text[:50], persisted=persist)
+
+    async def _handle_attachment_only_message(
+        self,
+        update: Update,
+        attachment_result: Any,
+        text: str,
+    ) -> bool:
+        """Reply immediately when message contains only an attachment."""
+        if not attachment_result or text.strip() or not update.effective_message:
+            return False
+
+        status = (
+            f"Attachment saved at {attachment_result.raw_path}."
+            if attachment_result.markdown_path is None
+            else (
+                "Attachment saved and indexed.\n"
+                f"Raw: {attachment_result.raw_path}\n"
+                f"Indexed: {attachment_result.markdown_path}"
+            )
+        )
+        await update.effective_message.reply_text(status)
+        return True
 
     async def _handle_opencode_result(  # noqa: PLR0913
         self,

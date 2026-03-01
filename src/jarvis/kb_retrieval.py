@@ -74,13 +74,21 @@ def retrieve_chunks(
     if not query:
         return []
 
-    rows = db.search_chunks_fts(query, max(limit * 4, limit))
+    rows = db.search_chunks_fts(query, max(limit * 6, limit))
     if not rows:
         return []
 
+    ranked_rows = sorted(
+        rows,
+        key=lambda row: (
+            _source_priority(str(row.get("markdown_path", ""))),
+            _as_float(row.get("score")),
+        ),
+    )
+
     selected: list[RetrievedChunk] = []
     per_doc_counts: dict[int, int] = {}
-    for row in rows:
+    for row in ranked_rows:
         doc_id = _as_int(row.get("document_id"))
         if per_doc_counts.get(doc_id, 0) >= per_document_cap:
             continue
@@ -104,6 +112,17 @@ def retrieve_chunks(
             break
 
     return selected
+
+
+def _source_priority(markdown_path: str) -> int:
+    normalized = markdown_path.replace("\\", "/").lower()
+    if "/attachments/" in normalized:
+        return 0
+    if "/memories/" in normalized:
+        return 1
+    if "/sources/web/" in normalized:
+        return 2
+    return 1
 
 
 def _as_int(value: object) -> int:

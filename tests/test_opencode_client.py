@@ -47,6 +47,31 @@ class TestOpenCodeClientErrors:
             await client.send_message("ses-123", "Hello")
 
     @respx.mock
+    async def test_send_message_with_agent(self, client):
+        """send_message forwards explicit agent in payload."""
+        captured: dict[str, object] = {}
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            import json
+
+            captured.update(json.loads(request.content.decode("utf-8")))
+            return httpx.Response(
+                200,
+                json={
+                    "message": {
+                        "parts": [{"type": "text", "text": "ok"}],
+                        "info": {"modelID": "gpt-4o", "providerID": "openai"},
+                    }
+                },
+            )
+
+        respx.post("http://localhost:4096/session/ses-123/message").mock(side_effect=handler)
+
+        await client.send_message("ses-123", "Hello", agent="dr-gate")
+
+        assert captured.get("agent") == "dr-gate"
+
+    @respx.mock
     async def test_send_command_failure(self, client):
         """Test command execution raises OpenCodeError on failure."""
         respx.post("http://localhost:4096/session/ses-123/command").mock(

@@ -124,11 +124,14 @@ class OpenCodeClient:
         session_id: str,
         text: str,
         model: str | None = None,
+        agent: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         """Send a regular message to OpenCode."""
         payload: dict[str, Any] = {"parts": [{"type": "text", "text": text}]}
         if model:
             payload["model"] = parse_model_string(model)
+        if agent:
+            payload["agent"] = agent
 
         return await send_with_payload(
             client=self.client,
@@ -254,7 +257,6 @@ class OpenCodeClient:
         answers: list[list[str]],
         directory: str | None = None,
     ) -> bool:
-        """Reply to an OpenCode question request."""
         params = {"directory": directory} if directory else None
         payload = {"answers": answers}
         return await post_boolean(
@@ -267,7 +269,6 @@ class OpenCodeClient:
         )
 
     async def question_reject(self, request_id: str, directory: str | None = None) -> bool:
-        """Reject an OpenCode question request."""
         params = {"directory": directory} if directory else None
         return await post_boolean(
             client=self.client,
@@ -285,7 +286,6 @@ class OpenCodeClient:
         message: str | None = None,
         directory: str | None = None,
     ) -> bool:
-        """Reply to an OpenCode permission request."""
         params = {"directory": directory} if directory else None
         payload: dict[str, Any] = {"reply": reply}
         if message:
