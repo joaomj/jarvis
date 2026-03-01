@@ -29,6 +29,7 @@ class PendingPrompt:
     prompt_text: str
     kind: str = "default"
     known_markdown_paths: tuple[str, ...] = ()
+    is_private: bool = False
 
 
 class EventProcessor:
@@ -73,6 +74,7 @@ class EventProcessor:
         session_title: str,
         kind: str = "default",
         known_markdown_paths: tuple[str, ...] = (),
+        is_private: bool = False,
     ) -> None:
         """Register an async prompt waiting for assistant completion."""
         self._pending_by_session[session_id] = PendingPrompt(
@@ -82,6 +84,7 @@ class EventProcessor:
             prompt_text=prompt_text,
             kind=kind,
             known_markdown_paths=known_markdown_paths,
+            is_private=is_private,
         )
         self._pinned.set_chat(chat_id)
         self._pinned.on_session(session_id=session_id, session_title=session_title)
@@ -189,17 +192,19 @@ class EventProcessor:
         used_model = f"{provider_id}/{model_id}" if provider_id and model_id else model_id
         agent = str(info.get("agent", ""))
 
-        turn_id = self._bot.db.create_turn(
-            telegram_user_id=pending.user_id,
-            telegram_chat_id=pending.chat_id,
-            source="opencode",
-            prompt_text=pending.prompt_text,
-            response_text=response_text,
-            telegram_in_message_id=pending.in_message_id,
-            opencode_session_id=session_id,
-            model_full=used_model,
-            agent=agent,
-        )
+        turn_id: int | None = None
+        if not pending.is_private:
+            turn_id = self._bot.db.create_turn(
+                telegram_user_id=pending.user_id,
+                telegram_chat_id=pending.chat_id,
+                source="opencode",
+                prompt_text=pending.prompt_text,
+                response_text=response_text,
+                telegram_in_message_id=pending.in_message_id,
+                opencode_session_id=session_id,
+                model_full=used_model,
+                agent=agent,
+            )
         await self._bot._send_response_to_chat(
             chat_id=pending.chat_id,
             reply_to_message_id=pending.in_message_id,

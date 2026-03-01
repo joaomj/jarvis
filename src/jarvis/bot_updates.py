@@ -25,39 +25,47 @@ class BotUpdateMixin:
         text: str,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
         """Process message text and return OpenCode response."""
+        is_private = self._is_private_intent(text)
+        processed_text = self._strip_private_marker(text) if is_private else text
+
         if self.model_selector and self.model_selector.is_awaiting_selection(user_id):
             msg = update.effective_message
             if msg:
-                response = await self.model_selector.handle_selection(user_id, text)
+                response = await self.model_selector.handle_selection(user_id, processed_text)
                 await self._send_feedback_message(
                     update,
                     user_id,
                     response,
                     source="model_select",
-                    prompt_text=f"[model selection] {text}",
+                    prompt_text=f"[model selection] {processed_text}",
                     parse_mode="HTML",
                 )
             return None
 
-        if await self.events.handle_interaction_input(update, user_id, text):
+        if await self.events.handle_interaction_input(update, user_id, processed_text):
             return None
 
-        if self._is_save_intent(text) and await self._handle_save_intent(
-            update, user_id, session_id, text
+        if await self._handle_memory_intent(update, user_id, processed_text):
+            return None
+
+        if self._is_save_intent(processed_text) and await self._handle_save_intent(
+            update, user_id, session_id, processed_text
         ):
             return None
 
-        if self._is_kb_answer_intent(text):
-            return await self._handle_kb_answer_intent(user_id, session_id, text)
+        if self._is_kb_answer_intent(processed_text):
+            return await self._handle_kb_answer_intent(user_id, session_id, processed_text)
 
-        if self._is_bookmark_query(text) and await self._handle_bookmark_query(update, text):
+        if self._is_bookmark_query(processed_text) and await self._handle_bookmark_query(
+            update, processed_text
+        ):
             return None
 
         if not self.opencode:
             raise RuntimeError("OpenCode not initialized")
 
-        if text.startswith("!"):
-            parts = text[1:].split(maxsplit=1)
+        if processed_text.startswith("!"):
+            parts = processed_text[1:].split(maxsplit=1)
             command = parts[0]
             arguments = parts[1] if len(parts) > 1 else ""
             if command in {"models", "favmodels"}:
@@ -71,7 +79,7 @@ class BotUpdateMixin:
                     user_id,
                     "I am still processing your previous request. Please wait for completion.",
                     source="status",
-                    prompt_text=text,
+                    prompt_text=processed_text,
                 )
                 return None
 
@@ -79,22 +87,28 @@ class BotUpdateMixin:
             if self.model_selector:
                 selected_model = self.model_selector.get_model_for_user(user_id)
 
-            await self.opencode.prompt_async(session_id, text, model=selected_model)
+            await self.opencode.prompt_async(session_id, processed_text, model=selected_model)
             self.events.register_pending_prompt(
                 session_id=session_id,
                 user_id=user_id,
                 chat_id=update.effective_message.chat_id,
                 in_message_id=update.effective_message.message_id,
-                prompt_text=text,
+                prompt_text=processed_text,
                 session_title=f"jarvis-session-{session_id[:8]}",
+                is_private=is_private,
             )
-            await self._send_feedback_message(
-                update,
-                user_id,
-                "Working on it... I will send the full response when OpenCode finishes.",
-                source="status",
-                prompt_text=text,
-            )
+            if is_private:
+                await update.effective_message.reply_text(
+                    "Private request received. I will reply without storing this turn."
+                )
+            else:
+                await self._send_feedback_message(
+                    update,
+                    user_id,
+                    "Working on it... I will send the full response when OpenCode finishes.",
+                    source="status",
+                    prompt_text=processed_text,
+                )
             return None
 
         content_text = "\n".join(
@@ -125,13 +139,14 @@ class BotUpdateMixin:
             return
 
         user_id = update.effective_user.id
-        text = update.effective_message.text or ""
+        text = update.effective_message.text or update.effective_message.caption or ""
         self.events.remember_chat(update.effective_message.chat_id)
         if not self._is_authorized(user_id):
             logger.warning("unauthorized", user_id=user_id, text=text[:50])
             return
 
-        self._log_incoming_message(user_id, text)
+        is_private = self._is_private_intent(text)
+        self._log_incoming_message(user_id, text, persist=not is_private)
 
         if self.settings.x_client_id and self._should_sync():
             try:
@@ -163,11 +178,11 @@ class BotUpdateMixin:
             logger.error("handler_error", error=str(error), exc_info=True)
             await self._handle_error(update, f"Unexpected error: {str(error)[:200]}", user_id, text)
 
-    def _log_incoming_message(self, user_id: int, text: str) -> None:
+    def _log_incoming_message(self, user_id: int, text: str, *, persist: bool = True) -> None:
         """Log incoming message and optionally audit it."""
-        if self.settings.enable_message_audit:
+        if persist and self.settings.enable_message_audit:
             self.db.log_message(user_id, "in", text)
-        logger.info("message_received", user_id=user_id, text=text[:50])
+        logger.info("message_received", user_id=user_id, text=text[:50], persisted=persist)
 
     async def _handle_opencode_result(  # noqa: PLR0913
         self,

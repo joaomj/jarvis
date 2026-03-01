@@ -144,6 +144,11 @@ class Settings(BaseSettings):
         description="Maximum chunk size (in characters) for KB indexing",
     )
 
+    vault_root: str = Field(
+        default="vault",
+        description="Root directory for local-first vault artifacts",
+    )
+
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
@@ -196,6 +201,12 @@ class Settings(BaseSettings):
     @classmethod
     def expand_kb_content_dir(cls, v: str) -> str:
         """Expand user home in KB content directory path."""
+        return str(Path(v).expanduser())
+
+    @field_validator("vault_root")
+    @classmethod
+    def expand_vault_root(cls, v: str) -> str:
+        """Expand user home in vault root path."""
         return str(Path(v).expanduser())
 
     @field_validator("kb_max_chunks_per_query", "kb_rescan_stale_seconds", "kb_chunk_size_chars")

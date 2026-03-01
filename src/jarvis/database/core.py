@@ -185,6 +185,23 @@ CREATE TABLE IF NOT EXISTS kb_ingest_log (
     error TEXT NOT NULL,
     logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS memory_entries (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    memory_key TEXT NOT NULL UNIQUE,
+    content TEXT NOT NULL,
+    markdown_path TEXT,
+    tags_csv TEXT,
+    active INTEGER NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    forgotten_at TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_memory_entries_active_created_at
+ON memory_entries(active, created_at);
+
+CREATE INDEX IF NOT EXISTS idx_memory_entries_memory_key
+ON memory_entries(memory_key);
 """
 
 
