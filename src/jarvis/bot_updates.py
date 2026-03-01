@@ -1,7 +1,6 @@
 """Update processing mixin for ``JarvisBot``."""
 
 # mypy: ignore-errors
-
 from __future__ import annotations
 
 from typing import Any
@@ -59,6 +58,9 @@ class BotUpdateMixin:
         if self._is_bookmark_query(processed_text) and await self._handle_bookmark_query(
             update, processed_text
         ):
+            return None
+
+        if await self._maybe_handle_deep_research(update, user_id, session_id, processed_text):
             return None
 
         if not self.opencode:
@@ -133,6 +135,8 @@ class BotUpdateMixin:
         if update.callback_query:
             if await self.events.handle_callback(update):
                 return
+            if await self._handle_research_callback(update):
+                return
             await self._handle_feedback_callback(update)
             return
         if not update.effective_user or not update.effective_message:
@@ -198,15 +202,13 @@ class BotUpdateMixin:
         if not attachment_result or text.strip() or not update.effective_message:
             return False
 
-        status = (
-            f"Attachment saved at {attachment_result.raw_path}."
-            if attachment_result.markdown_path is None
-            else (
+        status = f"Attachment saved at {attachment_result.raw_path}."
+        if attachment_result.markdown_path is not None:
+            status = (
                 "Attachment saved and indexed.\n"
                 f"Raw: {attachment_result.raw_path}\n"
                 f"Indexed: {attachment_result.markdown_path}"
             )
-        )
         await update.effective_message.reply_text(status)
         return True
 
