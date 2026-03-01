@@ -97,6 +97,11 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-v --tb=short"
+markers = [
+    "fast: unit/component tests with no network",
+    "integration: tests using DB/filesystem and local fake servers",
+    "e2e_opencode: optional smoke tests against a real OpenCode server",
+]
 
 [tool.coverage.run]
 source = ["src/jarvis"]
