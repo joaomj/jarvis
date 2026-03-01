@@ -61,21 +61,25 @@ Note: `scripts/start-opencode.sh` currently contains local absolute paths. If yo
 
 ## Features
 
-**Current (MVP):**
+**Current:**
 - 📱 Chat with OpenCode AI via Telegram from anywhere
 - 🔄 All OpenCode commands work: `/compact`, `/undo`, `/redo`, `/share`, `/thinking`, etc.
 - 📁 File references work: `explain @src/config.py`
 - 💻 Bash commands work: `!ls -la`
 - 🎛️ Model selection: `/models` or `!models` to pick favorites
 - 📚 X bookmarks sync: Automatic daily sync, natural language queries
+- 🧠 Curated memory: remember/forget/recall flows stored in local `vault/`
+- 📎 Attachment ingestion: text attachments are saved to `vault/` and indexed for retrieval
+- 🔎 Source-grounded fallback: when local evidence is insufficient, Jarvis can synthesize with cited web sources
+- 📄 Deep research orchestration: explicit confirmation + staged OpenCode subagent pipeline with local report artifacts
 - 🔒 Single-user security (Telegram ID allowlist)
 - 📊 Response logging with model info
 - 🧹 Auto-cleanup (30 days)
 - 🚀 Polling mode - runs locally, no Tailscale needed
 
-**Planned (Phase 2):**
-- URL summarization (X threads, Substack articles)
-- Voice message transcription
+**Next:**
+- Rich extraction for non-text attachments (PDF-focused ingestion)
+- Better retrieval quality tuning (hybrid/rerank if needed)
 
 ## Usage
 
@@ -111,6 +115,28 @@ Jarvis: 📚 Bookmarks from recent (5 total)
 You: What did I bookmark about AI?
 Jarvis: 📚 Bookmarks matching "AI" (8 total)
    [...]
+```
+
+### Memory and Attachments
+
+```
+You: remember I prefer concise summaries with references
+Jarvis: Saved to memory.
+
+You: what do you remember about summaries?
+Jarvis: Here is what I remember: ...
+
+You: [attach notes.txt] what does this say about Tocqueville?
+Jarvis: [grounded answer with citations; attachment evidence prioritized]
+```
+
+### Deep Research
+
+```
+You: Write a deep research report (10 pages) about X and cite sources.
+Jarvis: [asks for confirmation]
+You: [tap Run deep research]
+Jarvis: [runs staged job and returns vault report path]
 ```
 
 ### Commands
@@ -165,6 +191,12 @@ LOG_LEVEL=INFO
 # X Bookmarks (Optional, OAuth 2.0)
 X_CLIENT_ID=your_x_client_id_here
 X_CLIENT_SECRET=your_x_client_secret_here
+
+# Local vault root
+VAULT_ROOT=vault
+
+# Enable OpenCode websearch tool when needed
+# OPENCODE_ENABLE_EXA=1
 ```
 
 See `.env.example` for complete configuration options.

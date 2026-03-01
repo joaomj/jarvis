@@ -4,6 +4,33 @@ All notable changes to Jarvis will be documented in this file.
 
 ## [Unreleased]
 
+## [Added] - 2026-03-01 - Vault Memory + Attachment Retrieval + Deep Research
+
+### Memory (Vault-First)
+- Added curated memory storage in local `vault/` with remember/forget/recall flows
+- Added SQLite `memory_entries` table for searchable memory metadata and active/forgotten lifecycle
+- Added private-turn persistence guard so private prompts skip turn logging/storage paths
+- Memory intent routing now uses LLM classification (via OpenCode) instead of hardcoded expression matching
+
+### Attachment Ingestion and Retrieval Priority
+- Added Telegram document ingestion for text attachments
+- Attachments are persisted under `vault/sources/attachments/` and indexed for grounded retrieval
+- Retrieval ranking now prioritizes attachment chunks ahead of other sources
+
+### Source-Grounded Answering
+- Added web fallback path for grounded answers when local evidence is insufficient
+- Fallback uses OpenCode deep-research agents for source discovery and synthesis with inline web citations
+
+### Deep Research Orchestration
+- Added staged deep research orchestration in Jarvis with local artifact workspace under `vault/research/<job-id>/`
+- Added dr-gate classification + explicit confirmation flow before running expensive deep research jobs
+- Added subagent stage execution across planner/query/search/triage/evidence/writer/editor/auditor
+- Added callback-driven Telegram UX for confirm/cancel deep research execution
+
+### Testing and Quality
+- Added dedicated tests for memory store/routing, private persistence, attachment ingestion/ranking, and deep research workflow
+- Full suite status: 86 tests passing
+
 ## [Changed] - 2026-02-23 - Weekly Mirror Reconcile + Low-Cost Daily Sync
 
 ### X Bookmarks Sync Strategy
