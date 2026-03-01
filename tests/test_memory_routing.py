@@ -41,13 +41,28 @@ async def test_memory_intent_is_handled_locally(settings) -> None:
     """Remember intent stores a memory without calling OpenCode."""
     bot = JarvisBot(settings)
     bot._send_feedback_message = AsyncMock()
+    bot.opencode = MagicMock()
+    bot.opencode.send_message = AsyncMock(
+        return_value=(
+            [
+                {
+                    "type": "text",
+                    "text": '{"action":"remember","payload":"Tocqueville warns","needs_confirmation":false}',
+                }
+            ],
+            {},
+        )
+    )
 
     update = MagicMock()
     update.effective_message.chat_id = 100
     update.effective_message.message_id = 200
 
     handled = await bot._handle_memory_intent(
-        update, user_id=123, text="remember Tocqueville warns"
+        update,
+        user_id=123,
+        session_id="sess-memory",
+        text="remember Tocqueville warns",
     )
 
     assert handled is True

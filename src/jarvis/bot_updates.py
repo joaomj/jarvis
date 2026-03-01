@@ -44,7 +44,7 @@ class BotUpdateMixin:
         if await self.events.handle_interaction_input(update, user_id, processed_text):
             return None
 
-        if await self._handle_memory_intent(update, user_id, processed_text):
+        if await self._handle_memory_intent(update, user_id, session_id, processed_text):
             return None
 
         if self._is_save_intent(processed_text) and await self._handle_save_intent(
