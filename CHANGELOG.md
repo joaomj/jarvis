@@ -4,6 +4,36 @@ All notable changes to Jarvis will be documented in this file.
 
 ## [Unreleased]
 
+## [Added] - 2026-03-02 - Integration-First Test Gates and Harnesses
+
+### Test Harness Foundation
+- Added shared deterministic harnesses under `tests/harness/`:
+  - `fake_telegram.py` for message/edit/pin/file behavior
+  - `update_factory.py` for typed message/callback/document update builders
+  - `fake_opencode_server.py` for in-process JSON and SSE contract testing
+- Added harness smoke coverage in `tests/test_harness_smoke.py`
+- Added pytest markers for tiered execution: `fast`, `integration`, `e2e_opencode`
+
+### Integration Coverage Upgrades
+- Replaced OpenCode client mock-heavy tests with HTTP contract tests against fake OpenCode server
+- Added event pipeline integration tests covering async completion lifecycle, interaction callbacks, and pinned status updates
+- Upgraded memory routing tests to integration contracts for remember/forget/recall/confirmation/private audit behavior
+- Upgraded attachment + source-priority tests with real vault/index flows and web-fallback citation coverage
+- Upgraded deep-research tests for deterministic stage order, confirm/cancel callback lifecycle, and malformed-stage failure handling
+
+### Optional Real OpenCode Smoke Tier
+- Added opt-in `e2e_opencode` smoke suite in `tests/test_e2e_opencode_smoke.py`
+- Smoke scenarios cover memory intent prompts, grounded KB answer prompting, and deep-research gate/job execution
+- Suite is disabled by default and enabled with `JARVIS_ENABLE_E2E_OPENCODE=1`
+
+### CI and Quality Gates
+- Updated GitHub Actions CI to run `pytest -m "fast or integration"` for PR/push validation
+- Added targeted mypy gate for deep-research orchestration (`src/jarvis/deep_research.py`)
+- Added scheduled/manual `e2e_opencode` workflow job for real server smoke execution
+
+### Test Suite Status
+- Default PR tiers: 96 passing (`fast` + `integration`), 3 deselected (`e2e_opencode`)
+
 ## [Added] - 2026-03-01 - Vault Memory + Attachment Retrieval + Deep Research
 
 ### Memory (Vault-First)

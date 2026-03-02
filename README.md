@@ -234,9 +234,23 @@ pdm run python -m jarvis
 # Run tests
 pdm run pytest
 
+# Run PR gate tiers
+pdm run pytest -m "fast or integration"
+
+# Run optional real OpenCode smoke tests
+JARVIS_ENABLE_E2E_OPENCODE=1 \
+JARVIS_E2E_OPENCODE_URL=http://localhost:4096 \
+JARVIS_E2E_OPENCODE_PASSWORD=your_password \
+pdm run pytest -m e2e_opencode
+
 # Lint
 pdm run ruff check .
 ```
+
+Shared integration harnesses live under `tests/harness/`:
+- `fake_telegram.py` for deterministic Telegram API behavior
+- `update_factory.py` for typed message/callback/document update builders
+- `fake_opencode_server.py` for in-process JSON/SSE OpenCode contract testing
 
 See [docs/tech-context.md#deployment](docs/tech-context.md#deployment) for detailed development setup.
 
