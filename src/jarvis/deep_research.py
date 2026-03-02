@@ -114,6 +114,7 @@ class DeepResearchOrchestrator:
             session_id,
             model,
             agent="dr-planner",
+            strict=True,
             prompt=(
                 "Create a deep research plan for this question. Return JSON only.\n"
                 f"Question: {question}"
@@ -126,6 +127,7 @@ class DeepResearchOrchestrator:
             session_id,
             model,
             agent="dr-query-builder",
+            strict=True,
             prompt=(
                 "Generate web-search queries from this plan. Return JSON only.\n"
                 f"Plan JSON:\n{json.dumps(plan, ensure_ascii=True)}"
@@ -138,6 +140,7 @@ class DeepResearchOrchestrator:
             session_id,
             model,
             agent="dr-websearch-highrep",
+            strict=True,
             prompt=(
                 "Find high-reputation sources for this question and query set. Return JSON only.\n"
                 f"Question: {question}\n"
@@ -151,6 +154,7 @@ class DeepResearchOrchestrator:
             session_id,
             model,
             agent="dr-source-triage",
+            strict=True,
             prompt=(
                 "Rank and triage these sources for the report. Return JSON only.\n"
                 f"Sources JSON:\n{json.dumps(web_sources, ensure_ascii=True)}"
@@ -163,6 +167,7 @@ class DeepResearchOrchestrator:
             session_id,
             model,
             agent="dr-evidence-extractor",
+            strict=True,
             prompt=(
                 "Extract evidence units from selected sources. Return JSON only.\n"
                 f"Selected sources JSON:\n{json.dumps(triaged, ensure_ascii=True)}"
@@ -202,6 +207,7 @@ class DeepResearchOrchestrator:
             session_id,
             model,
             agent="dr-citation-auditor",
+            strict=True,
             prompt=(
                 "Audit this report for citation completeness. Return JSON only.\n"
                 f"Report:\n{report_markdown}\n\n"
@@ -218,18 +224,23 @@ class DeepResearchOrchestrator:
             audit_path=str(audit_path),
         )
 
-    async def _run_json_stage(
+    async def _run_json_stage(  # noqa: PLR0913
         self,
         opencode: _OpenCodeLike,
         session_id: str,
         model: str | None,
         *,
         agent: str,
+        strict: bool,
         prompt: str,
     ) -> dict[str, Any]:
         parts, _info = await opencode.send_message(session_id, prompt, model=model, agent=agent)
         payload = _extract_json_dict(_merge_text(parts))
-        return payload if payload is not None else {"raw": _merge_text(parts), "agent": agent}
+        if payload is not None:
+            return payload
+        if strict:
+            raise ValueError(f"{agent} returned invalid JSON")
+        return {"raw": _merge_text(parts), "agent": agent}
 
     async def _run_markdown_stage(
         self,
