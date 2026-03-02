@@ -36,6 +36,8 @@ class FakeOpenCodeServer:
             "parts": [{"type": "text", "text": "ok"}],
             "info": {"modelID": "gpt-4o", "providerID": "openai", "agent": "default"},
         }
+        self.message_responses_by_agent: dict[str, dict[str, Any]] = {}
+        self.message_response_sequence: list[dict[str, Any]] = []
         self.prompt_async_status_code = 204
         self.route_failures: dict[tuple[str, str], RouteFailure] = {}
         self._session_index = 0
@@ -61,6 +63,14 @@ class FakeOpenCodeServer:
     def queue_sse_chunks(self, chunks: list[str]) -> None:
         """Set SSE response chunks to simulate chunked transfer."""
         self._sse_chunks = [chunk.encode("utf-8") for chunk in chunks]
+
+    def set_agent_message_response(self, agent: str, response: dict[str, Any]) -> None:
+        """Set deterministic response for one agent name."""
+        self.message_responses_by_agent[agent] = response
+
+    def queue_message_responses(self, responses: list[dict[str, Any]]) -> None:
+        """Queue message responses consumed in order across calls."""
+        self.message_response_sequence.extend(responses)
 
     async def _asgi_app(self, scope: dict[str, Any], receive: Any, send: Any) -> None:
         if scope.get("type") != "http":
@@ -90,7 +100,13 @@ class FakeOpenCodeServer:
             session_id = message_match.group(1)
             payload = await self._read_json_body(receive)
             self.message_payloads[session_id].append(payload)
-            await self._send_json(send, 200, self.message_response)
+            response_payload = self.message_response
+            agent = str(payload.get("agent", ""))
+            if agent and agent in self.message_responses_by_agent:
+                response_payload = self.message_responses_by_agent[agent]
+            elif self.message_response_sequence:
+                response_payload = self.message_response_sequence.pop(0)
+            await self._send_json(send, 200, response_payload)
             return
 
         command_match = re.fullmatch(r"/session/([^/]+)/command", path)
