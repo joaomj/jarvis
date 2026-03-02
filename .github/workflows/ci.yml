@@ -5,6 +5,9 @@ on:
     branches:
       - ${{ github.default_branch }}
   pull_request:
+  schedule:
+    - cron: "0 3 * * *"
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -15,6 +18,7 @@ permissions:
 
 jobs:
   test:
+    if: github.event_name != 'schedule'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: true
@@ -41,11 +45,38 @@ jobs:
       - name: Ruff format check
         run: pdm run ruff format --check .
 
-      - name: Run tests
-        run: pdm run pytest
+      - name: Mypy type check
+        run: pdm run mypy src/jarvis/deep_research.py
+
+      - name: Run fast and integration tests
+        run: pdm run pytest -m "fast or integration"
 
       - name: Install pre-commit
         run: pip install pre-commit
 
       - name: Run pre-commit hooks
         run: pre-commit run --all-files --show-diff-on-failure
+
+  e2e-opencode:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up PDM
+        uses: pdm-project/setup-pdm@v4
+        with:
+          python-version: "3.12"
+          cache: true
+          cache-dependency-path: pdm.lock
+
+      - name: Install dependencies
+        run: pdm install -G dev
+
+      - name: Run e2e opencode smoke tests
+        env:
+          JARVIS_ENABLE_E2E_OPENCODE: "1"
+          JARVIS_E2E_OPENCODE_URL: ${{ secrets.JARVIS_E2E_OPENCODE_URL }}
+          JARVIS_E2E_OPENCODE_PASSWORD: ${{ secrets.JARVIS_E2E_OPENCODE_PASSWORD }}
+        run: pdm run pytest -m e2e_opencode -v
