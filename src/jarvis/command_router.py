@@ -30,6 +30,8 @@ OPENCODE_PASS_THROUGH = {
     "undo",
     "unshare",
     "connect",
+    "save",
+    "recall",
 }
 
 # Commands blocked in Telegram (require TUI)

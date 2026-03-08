@@ -5,16 +5,14 @@
   - openclaw was previously named "clawdbot"
 - but the key difference is i do not want an AI agent with complete autonomy within my OS, computer and files. Its too risk.
 - i want to be the owner of my memories, of the agent learnings, of the conversation logs/history.
-  - they should be easily portable and synced. What about using **Syncthing** for this? Look at their repo: https://github.com/syncthing/syncthing
-    - this way i would avoid dependency with Google Drive (my current backup tool). Perhaps we could leverage git for this, too.
+  - they should be easily portable and synced. What about using [Syncthing](https://github.com/syncthing/syncthing) for this? This way i would avoid dependency with Google Drive (my current backup tool). Perhaps we could leverage git for this, too.
 
 ## My vision
 - i find the current, thread-style UI from chatgpt and all other big chatbots abhorent. Who wants to go through hundreds of chats?
 - it will be better if the UI aligns with the fact the agent is a personal assistant, a consigliere, a butler
 - this means just one chat, continuous, chat.
 - all the chat management should happen in the background, away from the user view: chat history organization, memories organization, choosing what "conversation mode" or tool to use, etc etc.
-- the agent must have the ability to self-improve itself and passively learn from its user
-- 
+- **the agent must have the ability to self-improve itself and passively learn from its user**
 
 ## Agents and the memory problem
 - agents are bad at retrieval
@@ -112,6 +110,7 @@ From all those cases, the most urgent i want to solve is the one about summarizi
 - [Dynamic context discovery](https://cursor.com/blog/dynamic-context-discovery)
 - [How to build agents with filesystems and bash](https://vercel.com/blog/how-to-build-agents-with-filesystems-and-bash)
 - [qmd - mini cli search for docs and knowledge bases](https://github.com/tobi/qmd)
+- [Oops, You Wrote a Database](https://dx.tips/oops-database)
 - [building the brain logic of ai agents : a beginner's guide](https://x.com/sharpeye_wnl/status/2017110571460784451)
 - [Build Agents That Learn](https://x.com/ashpreetbedi/status/2016318096772936159)
 - [Agents Need a Database](https://x.com/ashpreetbedi/status/2015935966268018823)
@@ -128,7 +127,12 @@ From all those cases, the most urgent i want to solve is the one about summarizi
 - [Langchain - why multiagents?](https://github.com/langchain-ai/docs/blob/main/src/oss/langchain/multi-agent/index.mdx)
 - [Skill - logging best practices](https://gist.github.com/jsadoski-rockhall/4e3450c1c633902a49c0a7d8d857bd91)
 - [the engineering behind clawdbot](https://x.com/Hesamation/status/2017038553058857413)
+- [Open source NotebookLM](https://github.com/lfnovo/open-notebook)
 - This is the closest implementation to what i want: `https://github.com/grinev/opencode-telegram-bot`
+
+### Opencode plugins
+- [supermemory](https://github.com/supermemoryai/opencode-supermemory) --> see also [supermemory repo](https://github.com/supermemoryai/supermemory)
+- [websearch citations](https://github.com/ghoulr/opencode-websearch-cited)
 
 ### Books and Scientific Papers for free
 - [Annas Archive API](https://annas-archive.li/faq#api): 
@@ -144,15 +148,18 @@ Add a way to get feedback on each message sent by the bot (thumbs up/down button
 Every message sent by the bot must show the agent being used and the model name. The model should follow the opencode convention: `provider/model-id` (e.g., `anthropic/claude-sonnet-4-20250514`, `openai/gpt-4o`). This provides transparency about which AI and model is generating each response.
 
 ### Natural Language Command Interface
-Remove almost all Telegram slash commands and replace them with natural language commands. Jarvis will map these natural language commands into opencode commands. The user should be able to interact using conversational language rather than memorizing specific commands.
+Remove almost all Telegram slash commands and replace them with natural language commands. Jarvis will map these natural language commands into OpenCode commands. The user should be able to interact using conversational language rather than memorizing specific commands.
 
-### Key Commands to Support via Natural Language
-The commands I use most when using the opencode TUI are:
-- `/models` - List available models
-- `/agents` - List available agents
-- `/review` - Trigger code review
+**UPDATE:** Instead of building NLU in Jarvis, we now use OpenCode's custom commands feature. This keeps Jarvis as a thin bridge and leverages OpenCode's existing extensibility. See [OpenCode Commands Documentation](https://opencode.ai/docs/commands/).
 
-These commands should be accessible through natural language queries like:
-- "What models are available?"
-- "Show me the agents"
-- "Review my code"
+### Key Commands to Support via OpenCode Custom Commands
+Create custom OpenCode commands for Jarvis-specific features:
+- `/ingest-pdf` - Extract and index PDF content using LLM vision
+- `/recall [query]` - Search vault memories
+- `/research [topic]` - Deep research with citations
+- `/save [url]` - Save URL to vault
+- `/remember [text]` - Store curated memory
+- `/forget [text]` - Remove curated memory
+- `/help-jarvis` - List all Jarvis commands
+
+Discoverability via `/help-jarvis` - users can see all available commands without reading docs.

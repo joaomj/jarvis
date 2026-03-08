@@ -9,50 +9,14 @@ from datetime import date
 from telegram import Update
 
 from jarvis.bookmarks.sync import BookmarkSync
-from jarvis.bot_constants import BOOKMARK_KEYWORDS, TIME_EXPRESSIONS, WEEKLY_RECONCILE_DAYS
-from jarvis.handlers.bookmarks import query_bookmarks
+from jarvis.bot_constants import WEEKLY_RECONCILE_DAYS
 from jarvis.logging_config import get_logger
 
 logger = get_logger(__name__)
 
 
 class BotBookmarksMixin:
-    """Methods for bookmark query handling and sync orchestration."""
-
-    def _is_bookmark_query(self, text: str) -> bool:
-        """Check whether input looks like a bookmark query."""
-        text_lower = text.lower()
-        has_bookmark_keyword = any(keyword in text_lower for keyword in BOOKMARK_KEYWORDS)
-        has_time_expression = any(expr in text_lower for expr in TIME_EXPRESSIONS)
-        return has_bookmark_keyword and (has_time_expression or "recent" in text_lower)
-
-    async def _handle_bookmark_query(self, update: Update, text: str) -> bool:
-        """Handle bookmark query and send reply."""
-        msg = update.effective_message
-        if msg is None:
-            return False
-
-        user_id = update.effective_user.id if update.effective_user else 0
-        if not self.settings.x_client_id or not self.settings.x_client_secret:
-            await self._send_feedback_message(
-                update,
-                user_id,
-                "📚 Bookmarks not configured. Set X_CLIENT_ID and X_CLIENT_SECRET in .env",
-                source="system",
-                prompt_text=text,
-            )
-            return False
-
-        response = await query_bookmarks(text, self)
-        await self._send_feedback_message(
-            update,
-            user_id,
-            response,
-            source="bookmarks",
-            prompt_text=text,
-            parse_mode="HTML",
-        )
-        return True
+    """Methods for bookmark sync orchestration."""
 
     def _should_sync(self) -> bool:
         """Check if bookmark sync should run today."""

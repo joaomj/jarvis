@@ -219,29 +219,31 @@ First Message of Day
 - **WHAT**: Daily incremental is usually 0-1 API calls; weekly full reconcile fetches all pages
 - **WHERE**: Logged as "sync_completed" with new_bookmarks, total_bookmarks
 
-### Data Flow: X Bookmarks Query
+### Data Flow: Vault Query (via /recall)
 
 ```
-User Query (Telegram) - "What did I save last week?"
+User Command (Telegram) - "/recall my recent bookmarks"
     ↓
-[Detect Bookmark Query] - Keywords + time expression matching
-    ├─ Keywords: saved, bookmarked, my tweets, my bookmarks
-    ├─ Time: last week, yesterday, today, recent
-    └─ Pattern: must have keyword AND (time OR "recent")
-    ↓ (match)
-[Parse Time Range] - Convert natural time to ISO dates
-    ├─ "last week" → (now - 7 days) to now
-    ├─ "yesterday" → start of yesterday to end of yesterday
-    └─ "today" → start of today to now
+[OpenCode Command Handler] - Parse $ARGUMENTS
+    ├─ Extract query: "my recent bookmarks"
+    └─ Route to vault search
     ↓
-[Query Database] - SQLite: SELECT WHERE bookmarked_at BETWEEN ? AND ?
-    ├─ Indexed query on bookmarked_at
-    └─ ORDER BY bookmarked_at DESC
+[Vault Search] - BM25 retrieval across all sources
+    ├─ X bookmarks (from database)
+    ├─ Saved URLs (vault/url-saves/)
+    ├─ Attachments (vault/sources/attachments/)
+    └─ Memories (vault/memories/)
     ↓
-[Format Results] - Summaries with author, text preview, date
-    ├─ Max 10 shown (with "X more" if more)
-    ├─ HTML escaping for Telegram
-    └─ Option for details on specific tweet
+[Rank Results] - BM25 relevance scoring
+    ├─ Tokenize query
+    ├─ Search FTS index
+    └─ Return top N chunks with source attribution
+    ↓
+[Format Results] - Summaries with citations
+    ├─ Source type indicator (bookmark, URL, attachment, memory)
+    ├─ Text preview with relevance ranking
+    ├─ Citations in [doc:X chunk:Y] format
+    └─ HTML escaping for Telegram
     ↓
 [Send to User] - Via Telegram API
 ```
@@ -249,37 +251,54 @@ User Query (Telegram) - "What did I save last week?"
 **Metrics:**
 - **HOW**: Query execution time logged, result count tracked
 - **WHY**: Monitor query performance, detect indexing issues
-- **WHAT**: Typical query: <100ms for 1000 bookmarks
-- **WHERE**: Logged as "query_bookmarks" with results count, execution_time
+- **WHAT**: Typical query: <100ms for 1000 documents
+- **WHERE**: Logged as "vault_query" with results count, execution_time, source_breakdown
 
-### Data Flow: URL Save + Knowledge Base Index
+### Data Flow: URL Save (/save command)
 
 ```
-User Message - URL only or "save/scrape/read later" + URL
+User Command (Telegram) - "/save https://example.com/article"
     ↓
-[Save Intent Detection] - URL regex + keyword match
-    ↓ (match)
-[OpenCode Delegation]
-    ├─ Prompt asks existing Firecrawl workflow to scrape URL
-    └─ Writes markdown files into `.jarvis/url-saves/`
+[OpenCode Command Handler] - Parse $ARGUMENTS
+    ├─ Extract URL from arguments
+    └─ Invoke Firecrawl workflow
     ↓
-[Assistant Completion Event]
+[Firecrawl Scraping]
+    ├─ Fetch and parse HTML
+    ├─ Extract main content
+    └─ Generate markdown with YAML frontmatter
     ↓
-[KB Reindex Trigger]
-    ├─ Targeted scan for new markdown paths
-    ├─ Frontmatter parse (`url`, `title`, `captured_at`, ...)
+[Save to Vault]
+    ├─ Write markdown to `vault/url-saves/`
+    ├─ Frontmatter: url, title, captured_at, author, etc.
+    └─ Confirm file path
+    ↓
+[KB Indexing]
+    ├─ Scan new markdown file
+    ├─ Parse frontmatter
     ├─ Chunk by headings + max chars
     └─ Upsert docs/chunks + FTS rows in SQLite
     ↓
-[User Confirmation] - indexed/skipped/failed counters
+[User Confirmation] - "Saved and indexed: <filename>"
+```
+
+**Alternative: URL-only message suggestion**
+```
+User sends: "https://example.com/article" (URL only)
+    ↓
+[Bot detects URL-only message]
+    ↓
+[Suggests command] - "💡 To save this URL, use /save https://example.com/article"
 ```
 
 ### Data Flow: Grounded KB Answers
 
 ```
-User Message - "considering my knowledge base ..."
+User Command (Telegram) - "/recall what did I save about machine learning?"
     ↓
-[KB Intent Detection] - keyword match
+[OpenCode Command Handler] - Parse $ARGUMENTS
+    ├─ Extract query: "what did I save about machine learning?"
+    └─ Route to vault search
     ↓
 [Staleness Check]
     ├─ If index older than threshold, rescan markdown files
@@ -290,14 +309,13 @@ User Message - "considering my knowledge base ..."
     ├─ Retrieve top chunks from `kb_chunks_fts`
     └─ Apply per-document diversity cap
     ↓
-[Grounded Prompt to OpenCode]
+[Grounded Response]
     ├─ Strict "context only" instructions
-    ├─ Citation format required: `[doc:<id> chunk:<index>]`
-    └─ If citations missing, treat as insufficient evidence
+    ├─ Citation format: `[doc:<id> chunk:<index>]`
+    ├─ If citations missing → "insufficient evidence" response
+    └─ Include source list (title + URL/path)
     ↓
-[Telegram Response]
-    ├─ Direct answer with inline citations
-    └─ Compact source list (title + URL/path)
+[Telegram Response] - Answer with citations via OpenCode
 ```
 
 ### Knowledge Base Schema (SQLite)
@@ -380,12 +398,12 @@ User Message - "considering my knowledge base ..."
        │                 │               │
        ▼                 ▼               ▼
 ┌──────────────────┐             ┌────────────────────┐
-│  OpenCode Server │             │  Bookmarks Handler │
-│                  │             │ (handlers/bookmarks│
-│ - LLM inference  │             │              .py) │
-│ - File ops      │             │                    │
-│ - Git ops      │             └────────┬───────────┘
-│ - Bash cmds    │                      │
+│  OpenCode Server │             │   Vault Search     │
+│                  │             │    (via /recall)   │
+│ - LLM inference  │             │                    │
+│ - File ops      │             │ - BM25 retrieval   │
+│ - Git ops      │             │ - All vault content│
+│ - Bash cmds    │             └────────┬───────────┘
 └──────────────────┘                      │
        │                                  │
        │ X Bookmarks                      ▼
@@ -395,7 +413,7 @@ User Message - "considering my knowledge base ..."
 │  Client         │             │                    │
 │ (bookmarks/     │             │ - Auto-sync        │
 │  client.py)     │             │ - Daily incremental│
-│  + parser.py    │             │ - Weekly reconcile │
+│  + parser.py)   │             │ - Weekly reconcile │
 └────────┬────────┘             └─────────┬───────────┘
          │                               │
          ▼                               ▼
@@ -548,9 +566,9 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 - Accuracy: ~95% for common patterns (improvable with LLM parsing)
 
 **WHERE**:
-- Query detection: `handlers/bookmarks.py::is_bookmark_query()`
-- Query handling: `handlers/bookmarks.py::handle_bookmark_query()`
-- Natural language parsing: `handlers/bookmarks.py::query_bookmarks()`
+- Command definition: `.opencode/commands/recall.md`
+- Vault search: BM25 retrieval across all indexed content
+- X bookmarks: Auto-synced via `bookmarks/sync.py`, searchable via `/recall`
 
 **Tradeoffs:**
 - **Current**: Simple keyword matching, no semantic search

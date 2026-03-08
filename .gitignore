@@ -39,7 +39,6 @@ env/
 
 # Jarvis local state
 /.jarvis/
-/.opencode/
 
 # Temporary files
 /tmp/
@@ -80,7 +79,7 @@ docker-compose.override.yml
 .p12
 
 # Misc
-docs/moltbot/*
+.opencode/plans
 
 # Temporary planning files
 *_PLAN.md

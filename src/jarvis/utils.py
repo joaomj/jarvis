@@ -2,6 +2,17 @@
 
 import re
 
+URL_RE = re.compile(r"https?://\S+", re.IGNORECASE)
+
+
+def is_url_only(text: str) -> bool:
+    """Check if message contains only a URL."""
+    text = text.strip()
+    if not text:
+        return False
+    urls = URL_RE.findall(text)
+    return len(urls) == 1 and urls[0] == text
+
 
 def format_opencode_markdown(text: str) -> str:
     """Format OpenCode markdown for Telegram HTML.

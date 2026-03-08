@@ -9,6 +9,7 @@ from telegram import Update
 
 from jarvis.logging_config import get_logger
 from jarvis.opencode_client import OpenCodeError
+from jarvis.utils import is_url_only
 
 logger = get_logger(__name__)
 
@@ -27,6 +28,13 @@ class BotUpdateMixin:
         is_private = self._is_private_intent(text)
         processed_text = self._strip_private_marker(text) if is_private else text
 
+        # Suggest /save command for URL-only messages
+        if is_url_only(processed_text) and update.effective_message:
+            await update.effective_message.reply_text(
+                f"💡 To save this URL, use `/save {processed_text}`"
+            )
+            return None
+
         if self.model_selector and self.model_selector.is_awaiting_selection(user_id):
             msg = update.effective_message
             if msg:
@@ -42,22 +50,6 @@ class BotUpdateMixin:
             return None
 
         if await self.events.handle_interaction_input(update, user_id, processed_text):
-            return None
-
-        if await self._handle_memory_intent(update, user_id, session_id, processed_text):
-            return None
-
-        if self._is_save_intent(processed_text) and await self._handle_save_intent(
-            update, user_id, session_id, processed_text
-        ):
-            return None
-
-        if self._is_kb_answer_intent(processed_text):
-            return await self._handle_kb_answer_intent(user_id, session_id, processed_text)
-
-        if self._is_bookmark_query(processed_text) and await self._handle_bookmark_query(
-            update, processed_text
-        ):
             return None
 
         if await self._maybe_handle_deep_research(update, user_id, session_id, processed_text):
