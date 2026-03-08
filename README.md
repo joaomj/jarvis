@@ -219,7 +219,6 @@ The first model in the list is used as the default for new sessions.
 
 - **[Technical Context](docs/tech-context.md)** - Architecture, data flows, design decisions
 - **[SQL Query Examples](docs/sql-query-examples.md)** - Ready-to-run SQLite queries for local inspection
-- **[Product Requirements](docs/prd/)** - Full specification (20 sections)
 - **[Changelog](CHANGELOG.md)** - Version history and changes
 
 ## Development
