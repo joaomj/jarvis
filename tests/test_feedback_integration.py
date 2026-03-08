@@ -7,23 +7,17 @@ import pytest
 from jarvis.bot import JarvisBot
 from jarvis.config import Settings
 from jarvis.database import Database
-from tests.harness.fake_telegram import FakeTelegramBot
+from tests.harness.fake_telegram import FakeTelegramApp
 from tests.harness.update_factory import (
-    make_callback_query,
-    make_message_update,
-    make_text_message,
+    build_callback_update,
+    build_message_update,
 )
 
 
 @pytest.fixture
-def tmp_db_path(tmp_path):
-    """Provide temporary database path."""
-    return tmp_path / "test.db"
-
-
-@pytest.fixture
-def settings(tmp_db_path):
+def settings(tmp_path) -> Settings:
     """Create test settings with temp database."""
+    db_path = tmp_path / "test.db"
     return Settings(
         telegram_bot_id="test_token",
         telegram_user_id=123456789,
@@ -31,31 +25,25 @@ def settings(tmp_db_path):
         telegram_polling_timeout=10,
         opencode_url="http://localhost:4096",
         opencode_server_password="test_password",
-        database_path=str(tmp_db_path),
+        database_path=str(db_path),
         enable_message_audit=True,
     )
 
 
 @pytest.fixture
-def bot(settings):
-    """Create test bot instance with real database."""
-    return JarvisBot(settings)
-
-
-@pytest.fixture
-def fake_telegram_bot(bot):
-    """Inject FakeTelegramBot into bot."""
-    fake = FakeTelegramBot()
-    bot.app.bot = fake
-    return fake
+def bot(settings, fake_telegram_app: FakeTelegramApp) -> JarvisBot:
+    """Create test bot instance with real database and fake Telegram app."""
+    jarvis_bot = JarvisBot(settings)
+    jarvis_bot.app = fake_telegram_app  # type: ignore[assignment]
+    return jarvis_bot
 
 
 class TestDatabaseFeedbackOperations:
     """Database layer tests - verify core feedback schema and operations."""
 
-    def test_create_turn_creates_record(self, tmp_db_path):
+    def test_create_turn_creates_record(self, tmp_path):
         """Test creating a feedback turn record."""
-        db = Database(str(tmp_db_path))
+        db = Database(str(tmp_path / "test.db"))
         turn_id = db.create_turn(
             telegram_user_id=12345,
             telegram_chat_id=67890,
@@ -73,9 +61,9 @@ class TestDatabaseFeedbackOperations:
         assert turn["prompt_text"] == "What is AI?"
         assert turn["vote"] is None
 
-    def test_set_out_message_id_updates_record(self, tmp_db_path):
+    def test_set_out_message_id_updates_record(self, tmp_path):
         """Test setting outgoing message ID."""
-        db = Database(str(tmp_db_path))
+        db = Database(str(tmp_path / "test.db"))
         turn_id = db.create_turn(
             telegram_user_id=12345,
             telegram_chat_id=67890,
@@ -87,9 +75,9 @@ class TestDatabaseFeedbackOperations:
         turn = db.get_turn(turn_id)
         assert turn["telegram_out_message_id"] == 99999
 
-    def test_record_vote_by_authorized_user(self, tmp_db_path):
+    def test_record_vote_by_authorized_user(self, tmp_path):
         """Test recording vote by authorized user."""
-        db = Database(str(tmp_db_path))
+        db = Database(str(tmp_path / "test.db"))
         turn_id = db.create_turn(
             telegram_user_id=12345,
             telegram_chat_id=67890,
@@ -103,9 +91,9 @@ class TestDatabaseFeedbackOperations:
         assert turn["vote"] == 1
         assert turn["voted_at"] is not None
 
-    def test_record_vote_by_unauthorized_user_is_rejected(self, tmp_db_path):
+    def test_record_vote_by_unauthorized_user_is_rejected(self, tmp_path):
         """Test that unauthorized user cannot vote."""
-        db = Database(str(tmp_db_path))
+        db = Database(str(tmp_path / "test.db"))
         turn_id = db.create_turn(
             telegram_user_id=12345,
             telegram_chat_id=67890,
@@ -118,9 +106,9 @@ class TestDatabaseFeedbackOperations:
         turn = db.get_turn(turn_id)
         assert turn["vote"] is None
 
-    def test_record_vote_overwrites_previous(self, tmp_db_path):
+    def test_record_vote_overwrites_previous(self, tmp_path):
         """Test that vote can be overwritten."""
-        db = Database(str(tmp_db_path))
+        db = Database(str(tmp_path / "test.db"))
         turn_id = db.create_turn(
             telegram_user_id=12345,
             telegram_chat_id=67890,
@@ -150,7 +138,7 @@ class TestFeedbackCallbackIntegration:
         )
         bot.db.set_out_message_id(turn_id, 100)
 
-        update = make_callback_query(
+        update = build_callback_update(
             user_id=123456789,
             data=f"fb:{turn_id}:up",
             message_id=100,
@@ -174,7 +162,7 @@ class TestFeedbackCallbackIntegration:
         )
         bot.db.set_out_message_id(turn_id, 101)
 
-        update = make_callback_query(
+        update = build_callback_update(
             user_id=123456789,
             data=f"fb:{turn_id}:down",
             message_id=101,
@@ -197,7 +185,7 @@ class TestFeedbackCallbackIntegration:
             response_text="Response",
         )
 
-        update = make_callback_query(
+        update = build_callback_update(
             user_id=999999,
             data=f"fb:{turn_id}:up",
             message_id=100,
@@ -213,7 +201,7 @@ class TestFeedbackCallbackIntegration:
         """Test invalid callback data is ignored without error."""
         bot.db.add_user(123456789)
 
-        update = make_callback_query(
+        update = build_callback_update(
             user_id=123456789,
             data="invalid_data",
             message_id=100,
@@ -239,9 +227,12 @@ class TestFeedbackResponseIntegration:
             response_text="Response",
         )
 
-        update = make_message_update(
-            message=make_text_message(text="Test", chat_id=67890, message_id=1),
+        update = build_message_update(
             user_id=123456789,
+            chat_id=67890,
+            text="Test",
+            message_id=1,
+            bot=fake_telegram_bot,
         )
 
         parts = [
@@ -269,9 +260,12 @@ class TestFeedbackResponseIntegration:
             response_text="Response",
         )
 
-        update = make_message_update(
-            message=make_text_message(text="Test", chat_id=67890, message_id=1),
+        update = build_message_update(
             user_id=123456789,
+            chat_id=67890,
+            text="Test",
+            message_id=1,
+            bot=fake_telegram_bot,
         )
 
         await bot._send_response(update, [{"type": "text", "text": "Response"}], turn_id)
@@ -283,9 +277,12 @@ class TestFeedbackResponseIntegration:
         """Test that no keyboard is attached when turn_id is None."""
         bot.db.add_user(123456789)
 
-        update = make_message_update(
-            message=make_text_message(text="Test", chat_id=67890, message_id=1),
+        update = build_message_update(
             user_id=123456789,
+            chat_id=67890,
+            text="Test",
+            message_id=1,
+            bot=fake_telegram_bot,
         )
 
         await bot._send_response(update, [{"type": "text", "text": "Response"}], turn_id=None)
