@@ -216,9 +216,12 @@ class TestBookmarkSyncIntegration:
         assert result["new_bookmarks"] == 1
 
         # Verify saved to database
-        bookmarks = db.get_bookmarks_by_time_range(days=1)
-        assert len(bookmarks) == 1
-        assert bookmarks[0].tweet_id == "sync_test_1"
+        total = db.get_total_bookmarks_count()
+        assert total == 1
+        # Verify we can retrieve the bookmark by ID
+        bookmark = db.get_bookmark_by_id("sync_test_1")
+        assert bookmark is not None
+        assert bookmark["tweet_id"] == "sync_test_1"
 
     @pytest.mark.asyncio
     async def test_sync_respects_existing_bookmarks(self, db):
@@ -226,7 +229,7 @@ class TestBookmarkSyncIntegration:
         fake_client = FakeXAPIClient()
         fake_client.add_bookmark(
             FakeBookmarkData(
-                tweet_id="dup_test",
+                tweet_id="123456",
                 text="Duplicate test",
                 author_id="dup_author",
                 username="dupuser",
