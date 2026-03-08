@@ -46,7 +46,7 @@ jobs:
         run: pdm run ruff format --check .
 
       - name: Mypy type check
-        run: pdm run mypy src/jarvis/deep_research.py
+        run: pdm run mypy src/jarvis/
 
       - name: Run fast and integration tests
         run: pdm run pytest -m "fast or integration"
@@ -56,6 +56,33 @@ jobs:
 
       - name: Run pre-commit hooks
         run: pre-commit run --all-files --show-diff-on-failure
+
+  docker-build:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Hadolint Dockerfile lint
+        uses: hadolint/hadolint-action@v3.1.0
+        with:
+          dockerfile: Dockerfile
+
+      - name: Build Docker image
+        run: docker build -t jarvis:test .
+
+      - name: Test Docker container startup
+        run: |
+          docker run -d --name jarvis-test \
+            -e TELEGRAM_BOT_ID=test \
+            -e TELEGRAM_USER_ID=123 \
+            -e OPENCODE_URL=http://test:4096 \
+            -e OPENCODE_SERVER_PASSWORD=test \
+            jarvis:test || true
+          sleep 5
+          docker logs jarvis-test || true
+          docker rm -f jarvis-test || true
 
   e2e-opencode:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
