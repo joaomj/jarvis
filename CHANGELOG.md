@@ -4,6 +4,43 @@ All notable changes to Jarvis will be documented in this file.
 
 ## [Unreleased]
 
+## [Changed] - 2026-03-08 - Command-Based Interface Migration
+
+### Added Commands
+- **`/save`**: Save URLs to vault via Firecrawl workflow
+  - Usage: `/save https://example.com/article`
+  - Scrapes content and saves as markdown to `vault/url-saves/`
+  - Indexes content for retrieval via `/recall`
+- **`/recall`**: Search all vault content
+  - Usage: `/recall machine learning papers`
+  - Searches X bookmarks, saved URLs, attachments, and memories
+  - Uses BM25 retrieval with source attribution
+
+### Removed Natural Language Routing
+- Removed intent detection methods:
+  - `_is_save_intent()` - URL-only detection replaced by explicit `/save`
+  - `_handle_save_intent()` - Natural language save flow removed
+  - `_is_kb_answer_intent()` - KB query detection removed
+  - `_handle_kb_answer_intent()` - Grounded answer flow removed
+  - `_is_bookmark_query()` - Bookmark NL detection removed
+  - `_handle_bookmark_query()` - Bookmark query handling removed
+- Deleted `src/jarvis/handlers/bookmarks.py` (replaced by `/recall` command)
+- Deleted `.opencode/skills/x-bookmarks/` (replaced by `/recall`)
+
+### UX Changes
+- URL-only messages now suggest `/save` command
+- Explicit commands preferred over natural language for actions
+
+### Documentation Updates
+- `AGENTS.md`: Updated routing rules for commands, removed skill routing
+- `docs/roadmap.md`: Marked Phase 9.1 partially complete
+- `docs/tech-context.md`: Updated data flow diagrams for command-based workflow
+
+### Code Quality
+- Moved URL utilities to `utils.py` to fix file length
+- All pre-commit hooks passing
+- 94 tests passing
+
 ## [Added] - 2026-03-02 - Integration-First Test Gates and Harnesses
 
 ### Test Harness Foundation
