@@ -11,6 +11,7 @@ from jarvis.bot_bookmarks import BotBookmarksMixin
 from jarvis.bot_feedback import BotFeedbackMixin
 from jarvis.bot_kb import BotKBMixin
 from jarvis.bot_memory import BotMemoryMixin
+from jarvis.bot_opencode import BotOpenCodeMixin
 from jarvis.bot_research import BotResearchMixin
 from jarvis.bot_updates import BotUpdateMixin
 from jarvis.config import Settings
@@ -35,6 +36,7 @@ class JarvisBot(
     BotMemoryMixin,
     BotResearchMixin,
     BotFeedbackMixin,
+    BotOpenCodeMixin,
 ):
     """Telegram bot with polling support."""
 
