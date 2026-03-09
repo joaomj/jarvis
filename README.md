@@ -26,29 +26,60 @@ cp .env.example .env
 # Message @userinfobot on Telegram
 # Copy ID to .env as TELEGRAM_USER_ID
 
-# Start
-docker compose up -d
+# Terminal A: start local OpenCode server (as used in this repo)
+chmod +x scripts/start-opencode.sh
+./scripts/start-opencode.sh
+
+# Terminal B: start Jarvis container
+docker compose up -d jarvis
 
 # Done! Message your bot on Telegram
 ```
 
+## Local Run (OpenCode local + Jarvis Docker)
+
+This is the setup used on this machine:
+
+```bash
+# 1) Start OpenCode server on host
+./scripts/start-opencode.sh
+
+# 2) Start Jarvis in Docker
+docker compose up -d jarvis
+
+# 3) Follow Jarvis logs
+docker logs -f jarvis
+```
+
+To stop:
+
+```bash
+docker compose stop jarvis
+```
+
+Note: `scripts/start-opencode.sh` currently contains local absolute paths. If your workspace path differs, update that script first.
+
 ## Features
 
-**Current (MVP):**
+**Current:**
 - 📱 Chat with OpenCode AI via Telegram from anywhere
 - 🔄 All OpenCode commands work: `/compact`, `/undo`, `/redo`, `/share`, `/thinking`, etc.
 - 📁 File references work: `explain @src/config.py`
 - 💻 Bash commands work: `!ls -la`
 - 🎛️ Model selection: `/models` or `!models` to pick favorites
 - 📚 X bookmarks sync: Automatic daily sync, natural language queries
+- 🧠 Curated memory: remember/forget/recall flows stored in local `vault/`
+- 📎 Attachment ingestion: text attachments are saved to `vault/` and indexed for retrieval
+- 🔎 Source-grounded fallback: when local evidence is insufficient, Jarvis can synthesize with cited web sources
+- 📄 Deep research orchestration: explicit confirmation + staged OpenCode subagent pipeline with local report artifacts
 - 🔒 Single-user security (Telegram ID allowlist)
 - 📊 Response logging with model info
 - 🧹 Auto-cleanup (30 days)
 - 🚀 Polling mode - runs locally, no Tailscale needed
 
-**Planned (Phase 2):**
-- URL summarization (X threads, Substack articles)
-- Voice message transcription
+**Next:**
+- Rich extraction for non-text attachments (PDF-focused ingestion)
+- Better retrieval quality tuning (hybrid/rerank if needed)
 
 ## Usage
 
@@ -86,22 +117,29 @@ Jarvis: 📚 Bookmarks matching "AI" (8 total)
    [...]
 ```
 
-### Commands
+### Memory and Attachments
 
-**OpenCode Commands** (forwarded to OpenCode Server):
-| Command | Description |
-|---------|-------------|
-| `/compact` | Compact conversation |
-| `/summarize` | Summarize conversation |
-| `/details` | Show task details |
-| `/export` | Export conversation |
-| `/undo` | Undo last change |
-| `/redo` | Redo last change |
-| `/share` | Share session |
-| `/unshare` | Unshare session |
-| `/thinking` | Toggle thinking display |
-| `/connect` | Connect to repository |
-| `/help` | Show help |
+```
+You: remember I prefer concise summaries with references
+Jarvis: Saved to memory.
+
+You: what do you remember about summaries?
+Jarvis: Here is what I remember: ...
+
+You: [attach notes.txt] what does this say about Tocqueville?
+Jarvis: [grounded answer with citations; attachment evidence prioritized]
+```
+
+### Deep Research
+
+```
+You: Write a deep research report (10 pages) about X and cite sources.
+Jarvis: [asks for confirmation]
+You: [tap Run deep research]
+Jarvis: [runs staged job and returns vault report path]
+```
+
+### Commands
 
 **Local Commands** (handled by Jarvis):
 | Command | Description |
@@ -111,10 +149,10 @@ Jarvis: 📚 Bookmarks matching "AI" (8 total)
 | `/sessions` | List your sessions |
 | `/model <provider/model>` | Set model directly |
 
-**Native Shortcuts:**
+**OpenCode Commands:**
 - `!models` - Same as `/models`
 - `!favmodels` - Same as `/models`
-- `!<cmd>` - Forward any command to OpenCode
+- `!<cmd>` - Forward any OpenCode command (for example `!undo`, `!compact`, `!share`)
 
 ## Requirements
 
@@ -150,8 +188,15 @@ DATABASE_PATH=.jarvis/jarvis.db
 ENABLE_MESSAGE_AUDIT=true
 LOG_LEVEL=INFO
 
-# X Bookmarks (Optional)
-X_BEARER_TOKEN=your_bearer_token_here          # From developer.twitter.com
+# X Bookmarks (Optional, OAuth 2.0)
+X_CLIENT_ID=your_x_client_id_here
+X_CLIENT_SECRET=your_x_client_secret_here
+
+# Local vault root
+VAULT_ROOT=vault
+
+# Enable OpenCode websearch tool when needed
+# OPENCODE_ENABLE_EXA=1
 ```
 
 See `.env.example` for complete configuration options.
@@ -162,18 +207,18 @@ Create `.jarvis/favorite_models.json`:
 
 ```json
 [
-  "opencode/glm-5",
-  "opencode/minimax-m2.5-free",
-  "openai/gpt-4o"
+  "openai/gpt-5.2",
+  "zai/glm-4.7",
+  "openai/gpt-5.3-codex"
 ]
 ```
 
-Use `/models` to interactively select, or `!model provider/model` to set directly.
+The first model in the list is used as the default for new sessions.
 
 ## Documentation
 
 - **[Technical Context](docs/tech-context.md)** - Architecture, data flows, design decisions
-- **[Product Requirements](docs/prd/)** - Full specification (20 sections)
+- **[SQL Query Examples](docs/sql-query-examples.md)** - Ready-to-run SQLite queries for local inspection
 - **[Changelog](CHANGELOG.md)** - Version history and changes
 
 ## Development
@@ -188,9 +233,23 @@ pdm run python -m jarvis
 # Run tests
 pdm run pytest
 
+# Run PR gate tiers
+pdm run pytest -m "fast or integration"
+
+# Run optional real OpenCode smoke tests
+JARVIS_ENABLE_E2E_OPENCODE=1 \
+JARVIS_E2E_OPENCODE_URL=http://localhost:4096 \
+JARVIS_E2E_OPENCODE_PASSWORD=your_password \
+pdm run pytest -m e2e_opencode
+
 # Lint
 pdm run ruff check .
 ```
+
+Shared integration harnesses live under `tests/harness/`:
+- `fake_telegram.py` for deterministic Telegram API behavior
+- `update_factory.py` for typed message/callback/document update builders
+- `fake_opencode_server.py` for in-process JSON/SSE OpenCode contract testing
 
 See [docs/tech-context.md#deployment](docs/tech-context.md#deployment) for detailed development setup.
 

@@ -30,6 +30,8 @@ OPENCODE_PASS_THROUGH = {
     "undo",
     "unshare",
     "connect",
+    "save",
+    "recall",
 }
 
 # Commands blocked in Telegram (require TUI)
@@ -93,9 +95,7 @@ async def route_command(
     return (False, [])
 
 
-async def _handle_intercept(
-    cmd: str, args: str, user_id: int, bot: "JarvisBot"
-) -> str:
+async def _handle_intercept(cmd: str, args: str, user_id: int, bot: "JarvisBot") -> str:
     """Handle commands that need bridge-side processing.
 
     Args:
@@ -125,9 +125,7 @@ def _handle_blocked(cmd: str) -> str:
     return f"⚠️ Command /{cmd} is blocked.\n\n{reason}\n\nUse OpenCode TUI directly."
 
 
-async def _handle_bridge_native(
-    cmd: str, args: str, user_id: int, bot: "JarvisBot"
-) -> str:
+async def _handle_bridge_native(cmd: str, args: str, user_id: int, bot: "JarvisBot") -> str:
     """Handle bridge-native commands.
 
     Args:

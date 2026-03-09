@@ -24,12 +24,8 @@ class Settings(BaseSettings):
     )
 
     # Telegram settings
-    telegram_bot_id: str = Field(
-        description="Telegram bot token from @BotFather"
-    )
-    telegram_user_id: int = Field(
-        description="Authorized Telegram user ID"
-    )
+    telegram_bot_id: str = Field(description="Telegram bot token from @BotFather")
+    telegram_user_id: int = Field(description="Authorized Telegram user ID")
     telegram_polling_interval: float = Field(
         default=1.0,
         description="Seconds between polling requests",
@@ -44,9 +40,7 @@ class Settings(BaseSettings):
         default="http://localhost:4096",
         description="OpenCode Server HTTP URL",
     )
-    opencode_server_password: str = Field(
-        description="OpenCode Server password for authentication"
-    )
+    opencode_server_password: str = Field(description="OpenCode Server password for authentication")
 
     # Database settings
     database_path: str = Field(
@@ -85,6 +79,75 @@ class Settings(BaseSettings):
         default=None,
         description="X OAuth 2.0 Client Secret from Developer Console",
     )
+    x_api_base_url: str = Field(
+        default="https://api.twitter.com/2",
+        description="X API base URL",
+    )
+    x_oauth_token_url: str = Field(
+        default="https://api.x.com/2/oauth2/token",
+        description="X OAuth 2.0 token endpoint URL",
+    )
+    x_api_timeout: float = Field(
+        default=30.0,
+        description="X API request timeout in seconds",
+    )
+    x_token_refresh_buffer_seconds: int = Field(
+        default=300,
+        description="Seconds before expiry to refresh token",
+    )
+
+    # Database limits
+    db_message_content_max_length: int = Field(
+        default=1000,
+        description="Max characters to store per message in audit log",
+    )
+    db_response_cleanup_days: int = Field(
+        default=30,
+        description="Days to keep responses before cleanup",
+    )
+
+    # Polling settings
+    polling_max_backoff_level: int = Field(
+        default=6,
+        description="Max exponential backoff level (~64s max delay)",
+    )
+    polling_max_backoff_seconds: int = Field(
+        default=60,
+        description="Cap for backoff delay in seconds",
+    )
+
+    # Bookmarks display
+    bookmarks_max_display_count: int = Field(
+        default=10,
+        description="Max bookmarks to show in query results",
+    )
+    bookmarks_text_preview_length: int = Field(
+        default=100,
+        description="Max characters to show per bookmark in list",
+    )
+
+    # URL knowledge base settings
+    kb_content_dir: str = Field(
+        default=".jarvis/url-saves",
+        description="Directory containing saved markdown knowledge-base content",
+    )
+    kb_max_chunks_per_query: int = Field(
+        default=6,
+        description="Max retrieved chunks to include in grounded KB answers",
+    )
+    kb_rescan_stale_seconds: int = Field(
+        default=300,
+        description="Rescan KB content before retrieval when index age exceeds this threshold",
+    )
+    kb_chunk_size_chars: int = Field(
+        default=1800,
+        description="Maximum chunk size (in characters) for KB indexing",
+    )
+
+    vault_root: str = Field(
+        default="vault",
+        description="Root directory for local-first vault artifacts",
+    )
 
     @field_validator("log_level")
     @classmethod
@@ -109,9 +172,7 @@ class Settings(BaseSettings):
     def validate_polling_interval(cls, v: float) -> float:
         """Validate polling interval is reasonable."""
         if v < MIN_POLLING_INTERVAL:
-            raise ValueError(
-                f"polling_interval must be >= {MIN_POLLING_INTERVAL}s, got {v}"
-            )
+            raise ValueError(f"polling_interval must be >= {MIN_POLLING_INTERVAL}s, got {v}")
         return v
 
     @field_validator("telegram_polling_timeout")
@@ -135,6 +196,34 @@ class Settings(BaseSettings):
     def expand_favorite_models_path(cls, v: str) -> str:
         """Expand user home in favorite models path."""
         return str(Path(v).expanduser())
+
+    @field_validator("kb_content_dir")
+    @classmethod
+    def expand_kb_content_dir(cls, v: str) -> str:
+        """Expand user home in KB content directory path."""
+        return str(Path(v).expanduser())
+
+    @field_validator("vault_root")
+    @classmethod
+    def expand_vault_root(cls, v: str) -> str:
+        """Expand user home in vault root path."""
+        return str(Path(v).expanduser())
+
+    @field_validator("kb_max_chunks_per_query", "kb_rescan_stale_seconds", "kb_chunk_size_chars")
+    @classmethod
+    def validate_positive_kb_values(cls, v: int) -> int:
+        """Validate KB numeric settings are positive."""
+        if v <= 0:
+            raise ValueError(f"KB setting value must be positive, got {v}")
+        return v
+
+    @field_validator("x_api_base_url", "x_oauth_token_url")
+    @classmethod
+    def validate_https_url(cls, v: str) -> str:
+        """Validate OAuth/API URLs use HTTPS for security."""
+        if not v.startswith("https://"):
+            raise ValueError(f"URL must use HTTPS for security, got: {v}")
+        return v
 
 
 def get_settings() -> Settings:

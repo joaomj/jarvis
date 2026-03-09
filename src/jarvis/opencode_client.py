@@ -1,88 +1,40 @@
-"""HTTP client for OpenCode Server API.
+"""HTTP client for OpenCode Server API."""
 
-Thin wrapper around httpx for async HTTP communication with OpenCode Server.
-Handles authentication, session management, and response parsing.
+from __future__ import annotations
 
-API Reference: https://opencode.ai/docs/server
-"""
-
+from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
 
 from jarvis.exceptions import OpenCodeError
 from jarvis.logging_config import get_logger
+from jarvis.opencode_events import parse_sse_event_block
+from jarvis.opencode_request_helpers import post_boolean, send_with_payload
+from jarvis.opencode_response import parse_model_string, status_error_preview
 
 logger = get_logger(__name__)
 
 
-def _parse_model_string(model: str) -> dict[str, str]:
-    """Parse model string into OpenCode API format.
-
-    Args:
-        model: Model in format "provider/model" or just "model".
-
-    Returns:
-        dict: {"providerID": "...", "modelID": "..."} or {"modelID": "..."}
-
-    Example:
-        >>> _parse_model_string("opencode/glm-5")
-        {"providerID": "opencode", "modelID": "glm-5"}
-        >>> _parse_model_string("glm-5")
-        {"modelID": "glm-5"}
-    """
-    if "/" in model:
-        provider, model_id = model.split("/", 1)
-        return {"providerID": provider, "modelID": model_id}
-    return {"modelID": model}
-
-
 class OpenCodeClient:
-    """Async HTTP client for OpenCode Server API.
+    """Async HTTP client for OpenCode Server API."""
 
-    Responsibilities:
-    - Health checks
-    - Session creation and management
-    - Message/command sending
-    - Response parsing
-
-    Example:
-        >>> client = OpenCodeClient("http://opencode:4096", "password")
-        >>> await client.health_check()
-        True
-        >>> session_id = await client.create_session("user-123")
-        >>> response = await client.send_message(session_id, "Hello")
-    """
-
-    def __init__(self, base_url: str, password: str, log_level: str = "INFO"):
-        """Initialize client with authentication.
-
-        Args:
-            base_url: OpenCode Server URL (e.g., http://opencode:4096).
-            password: Server password for basic auth.
-            log_level: Logging level for response content (INFO or DEBUG).
-        """
+    def __init__(self, base_url: str, password: str, log_level: str = "INFO") -> None:
         self.base_url = base_url.rstrip("/")
         self.auth = ("opencode", password)
         self.client = httpx.AsyncClient(auth=self.auth, timeout=60.0)
         self._log_level = log_level.upper()
         logger.info(
-            "opencode_client_initialized",
-            base_url=self.base_url,
-            log_level=self._log_level,
+            "opencode_client_initialized", base_url=self.base_url, log_level=self._log_level
         )
 
     async def close(self) -> None:
-        """Close the HTTP client."""
+        """Close HTTP client resources."""
         await self.client.aclose()
         logger.info("opencode_client_closed")
 
     async def health_check(self) -> tuple[bool, str]:
-        """Check if OpenCode Server is healthy.
-
-        Returns:
-            tuple: (healthy: bool, reason: str)
-        """
+        """Check if OpenCode Server is healthy."""
         try:
             response = await self.client.get(f"{self.base_url}/global/health")
             response.raise_for_status()
@@ -90,164 +42,110 @@ class OpenCodeClient:
             healthy = data.get("healthy", False)
             version = data.get("version", "unknown")
             reason = f"OK (v{version})" if healthy else f"Server reports unhealthy (v{version})"
-            logger.info(
-                "health_check_complete",
-                healthy=healthy,
-                version=version,
-            )
+            logger.info("health_check_complete", healthy=healthy, version=version)
             return healthy, reason
-        except httpx.HTTPStatusError as e:
-            error_msg = f"HTTP {e.response.status_code}: {e.response.text[:100]}"
-            logger.error("health_check_failed", status_code=e.response.status_code, error=str(e))
+        except httpx.HTTPStatusError as error:
+            error_msg = f"HTTP {error.response.status_code}: {error.response.text[:100]}"
+            logger.error(
+                "health_check_failed", status_code=error.response.status_code, error=str(error)
+            )
             return False, error_msg
-        except httpx.HTTPError as e:
-            error_msg = f"Connection error: {str(e)[:100]}"
-            logger.error("health_check_failed", error=str(e))
+        except httpx.HTTPError as error:
+            error_msg = f"Connection error: {str(error)[:100]}"
+            logger.error("health_check_failed", error=str(error))
             return False, error_msg
 
     async def create_session(self, title: str) -> str:
-        """Create a new session.
-
-        Args:
-            title: Session title (e.g., "jarvis-user-{user_id}").
-
-        Returns:
-            str: Session ID.
-
-        Raises:
-            OpenCodeError: If creation fails.
-        """
+        """Create a new OpenCode session."""
         try:
-            response = await self.client.post(
-                f"{self.base_url}/session",
-                json={"title": title},
-            )
+            response = await self.client.post(f"{self.base_url}/session", json={"title": title})
             response.raise_for_status()
-            data = response.json()
-            session_id = data["id"]
-            logger.info(
-                "session_created",
-                session_id=session_id,
-                title=title,
-            )
+            session_id = response.json()["id"]
+            logger.info("session_created", session_id=session_id, title=title)
             return session_id
-        except httpx.HTTPStatusError as e:
+        except httpx.HTTPStatusError as error:
             logger.error(
                 "session_creation_failed",
-                status_code=e.response.status_code,
-                error=str(e),
+                status_code=error.response.status_code,
+                error=str(error),
             )
             raise OpenCodeError(
-                f"Failed to create session: {e}",
-                status_code=e.response.status_code,
-            ) from e
-        except (KeyError, httpx.HTTPError) as e:
-            logger.error("session_creation_error", error=str(e))
-            raise OpenCodeError(f"Failed to create session: {e}") from e
+                f"Failed to create session: {error}",
+                status_code=error.response.status_code,
+            ) from error
+        except (KeyError, httpx.HTTPError) as error:
+            logger.error("session_creation_error", error=str(error))
+            raise OpenCodeError(f"Failed to create session: {error}") from error
 
     async def list_sessions(self) -> list[dict[str, Any]]:
-        """List all sessions.
-
-        Returns:
-            list: All sessions from OpenCode.
-
-        Raises:
-            OpenCodeError: If listing fails.
-        """
+        """List all sessions from OpenCode."""
         try:
             response = await self.client.get(f"{self.base_url}/session")
             response.raise_for_status()
             sessions = response.json()
-            logger.info(
-                "sessions_listed",
-                count=len(sessions),
-            )
+            logger.info("sessions_listed", count=len(sessions))
             return sessions
-        except httpx.HTTPStatusError as e:
+        except httpx.HTTPStatusError as error:
+            logger.error("sessions_list_failed", status_code=error.response.status_code)
+            raise OpenCodeError(
+                f"Failed to list sessions: {error}",
+                status_code=error.response.status_code,
+            ) from error
+        except httpx.HTTPError as error:
+            logger.error("sessions_list_error", error=str(error))
+            raise OpenCodeError(f"Failed to list sessions: {error}") from error
+
+    async def get_session_messages(self, session_id: str, limit: int = 20) -> list[dict[str, Any]]:
+        """Get recent messages for a session."""
+        try:
+            response = await self.client.get(
+                f"{self.base_url}/session/{session_id}/message",
+                params={"limit": limit},
+            )
+            response.raise_for_status()
+            data = response.json()
+            return data if isinstance(data, list) else []
+        except httpx.HTTPStatusError as error:
             logger.error(
-                "sessions_list_failed",
-                status_code=e.response.status_code,
+                "session_messages_failed",
+                session_id=session_id,
+                status_code=error.response.status_code,
             )
             raise OpenCodeError(
-                f"Failed to list sessions: {e}",
-                status_code=e.response.status_code,
-            ) from e
-        except httpx.HTTPError as e:
-            logger.error("sessions_list_error", error=str(e))
-            raise OpenCodeError(f"Failed to list sessions: {e}") from e
+                f"Failed to fetch session messages: HTTP {error.response.status_code}",
+                status_code=error.response.status_code,
+            ) from error
+        except httpx.HTTPError as error:
+            logger.error("session_messages_error", session_id=session_id, error=str(error))
+            raise OpenCodeError(f"Failed to fetch session messages: {error}") from error
 
     async def send_message(
         self,
         session_id: str,
         text: str,
         model: str | None = None,
+        agent: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        """Send a regular message to OpenCode.
-
-        Args:
-            session_id: OpenCode session ID.
-            text: Message text (can include @file references).
-            model: Optional model ID in format "provider/model" or "model".
-
-        Returns:
-            tuple: (response parts, info dict with model/agent details).
-
-        Raises:
-            OpenCodeError: If sending fails.
-        """
-        payload: dict[str, Any] = {
-            "parts": [{"type": "text", "text": text}],
-        }
+        """Send a regular message to OpenCode."""
+        payload: dict[str, Any] = {"parts": [{"type": "text", "text": text}]}
         if model:
-            payload["model"] = _parse_model_string(model)
+            payload["model"] = parse_model_string(model)
+        if agent:
+            payload["agent"] = agent
 
-        try:
-            response = await self.client.post(
-                f"{self.base_url}/session/{session_id}/message",
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
-            parts = data.get("parts", [])
-            info = data.get("info", {})
-
-            model_id = info.get("modelID", "")
-            provider_id = info.get("providerID", "")
-            agent = info.get("agent", "")
-            used_model = f"{provider_id}/{model_id}" if provider_id else model_id
-
-            content_text = "\n".join(
-                p.get("text", "")
-                for p in parts
-                if p.get("type") == "text"
-            )
-            preview = content_text[:200] if content_text else ""
-
-            log_data = {
-                "session_id": session_id,
-                "response_parts": len(parts),
-                "model": used_model,
-                "agent": agent,
-                "content_preview": preview,
-            }
-            if self._log_level == "DEBUG":
-                log_data["content_full"] = content_text
-
-            logger.info("message_sent", **log_data)
-            return parts, info
-        except httpx.HTTPStatusError as e:
-            logger.error(
-                "message_send_failed",
-                session_id=session_id,
-                status_code=e.response.status_code,
-            )
-            raise OpenCodeError(
-                f"Failed to send message: {e}",
-                status_code=e.response.status_code,
-            ) from e
-        except httpx.HTTPError as e:
-            logger.error("message_send_error", session_id=session_id, error=str(e))
-            raise OpenCodeError(f"Failed to send message: {e}") from e
+        return await send_with_payload(
+            client=self.client,
+            base_url=self.base_url,
+            endpoint=f"/session/{session_id}/message",
+            payload=payload,
+            event_name="message_sent",
+            error_name="message_send_failed",
+            base_error="Failed to send message",
+            session_id=session_id,
+            command=None,
+            log_level=self._log_level,
+            logger=logger,
+        )
 
     async def send_command(
         self,
@@ -256,78 +154,147 @@ class OpenCodeClient:
         arguments: str = "",
         model: str | None = None,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-        """Execute a slash command in OpenCode.
-
-        Args:
-            session_id: OpenCode session ID.
-            command: Command name (without /, e.g., "undo", "share").
-            arguments: Optional command arguments.
-            model: Optional model ID in format "provider/model" or "model".
-
-        Returns:
-            tuple: (response parts, info dict with model/agent details).
-
-        Raises:
-            OpenCodeError: If command execution fails.
-        """
-        payload: dict[str, Any] = {
-            "command": command,
-            "arguments": arguments,
-        }
+        """Execute a slash command in OpenCode."""
+        payload: dict[str, Any] = {"command": command, "arguments": arguments}
         if model:
-            payload["model"] = _parse_model_string(model)
+            payload["model"] = parse_model_string(model)
+
+        return await send_with_payload(
+            client=self.client,
+            base_url=self.base_url,
+            endpoint=f"/session/{session_id}/command",
+            payload=payload,
+            event_name="command_executed",
+            error_name="command_execution_failed",
+            base_error="Failed to execute command",
+            session_id=session_id,
+            command=command,
+            log_level=self._log_level,
+            logger=logger,
+        )
+
+    async def prompt_async(
+        self,
+        session_id: str,
+        text: str,
+        model: str | None = None,
+        agent: str | None = None,
+    ) -> None:
+        """Send message asynchronously without waiting for final response."""
+        payload: dict[str, Any] = {"parts": [{"type": "text", "text": text}]}
+        if model:
+            payload["model"] = parse_model_string(model)
+        if agent:
+            payload["agent"] = agent
 
         try:
             response = await self.client.post(
-                f"{self.base_url}/session/{session_id}/command",
+                f"{self.base_url}/session/{session_id}/prompt_async",
                 json=payload,
             )
             response.raise_for_status()
-            data = response.json()
-            parts = data.get("parts", [])
-            info = data.get("info", {})
-
-            model_id = info.get("modelID", "")
-            provider_id = info.get("providerID", "")
-            agent = info.get("agent", "")
-            used_model = f"{provider_id}/{model_id}" if provider_id else model_id
-
-            content_text = "\n".join(
-                p.get("text", "")
-                for p in parts
-                if p.get("type") == "text"
-            )
-            preview = content_text[:200] if content_text else ""
-
-            log_data = {
-                "session_id": session_id,
-                "command": command,
-                "response_parts": len(parts),
-                "model": used_model,
-                "agent": agent,
-                "content_preview": preview,
-            }
-            if self._log_level == "DEBUG":
-                log_data["content_full"] = content_text
-
-            logger.info("command_executed", **log_data)
-            return parts, info
-        except httpx.HTTPStatusError as e:
+            logger.info("prompt_async_sent", session_id=session_id, agent=agent)
+        except httpx.HTTPStatusError as error:
+            preview = status_error_preview(error)
+            error_msg = f"Failed to send async prompt: HTTP {error.response.status_code}"
+            if preview:
+                error_msg = f"{error_msg} - {preview}"
             logger.error(
-                "command_execution_failed",
+                "prompt_async_failed",
                 session_id=session_id,
-                command=command,
-                status_code=e.response.status_code,
+                status_code=error.response.status_code,
+                response_preview=preview[:200] if preview else None,
             )
-            raise OpenCodeError(
-                f"Failed to execute command: {e}",
-                status_code=e.response.status_code,
-            ) from e
-        except httpx.HTTPError as e:
+            raise OpenCodeError(error_msg, status_code=error.response.status_code) from error
+        except httpx.HTTPError as error:
+            logger.error("prompt_async_error", session_id=session_id, error=str(error))
+            raise OpenCodeError(f"Failed to send async prompt: {error}") from error
+
+    async def stream_events(self, directory: str | None = None) -> AsyncIterator[dict[str, Any]]:
+        """Subscribe to OpenCode SSE event stream and yield parsed events."""
+        params = {"directory": directory} if directory else None
+
+        try:
+            async with self.client.stream(
+                "GET",
+                f"{self.base_url}/event",
+                params=params,
+                headers={"Accept": "text/event-stream"},
+            ) as response:
+                response.raise_for_status()
+                block: list[str] = []
+                async for line in response.aiter_lines():
+                    if line == "":
+                        event = parse_sse_event_block(block)
+                        if event is not None:
+                            yield event
+                        block.clear()
+                        continue
+                    if not line.startswith(":"):
+                        block.append(line)
+
+                if block:
+                    event = parse_sse_event_block(block)
+                    if event is not None:
+                        yield event
+        except httpx.HTTPStatusError as error:
+            preview = status_error_preview(error)
             logger.error(
-                "command_execution_error",
-                session_id=session_id,
-                command=command,
-                error=str(e),
+                "events_stream_failed",
+                status_code=error.response.status_code,
+                response_preview=preview[:200] if preview else None,
+                directory=directory,
             )
-            raise OpenCodeError(f"Failed to execute command: {e}") from e
+            error_msg = f"Failed to subscribe to events: HTTP {error.response.status_code}"
+            raise OpenCodeError(error_msg, status_code=error.response.status_code) from error
+        except httpx.HTTPError as error:
+            logger.error("events_stream_error", error=str(error), directory=directory)
+            raise OpenCodeError(f"Failed to subscribe to events: {error}") from error
+
+    async def question_reply(
+        self,
+        request_id: str,
+        answers: list[list[str]],
+        directory: str | None = None,
+    ) -> bool:
+        params = {"directory": directory} if directory else None
+        payload = {"answers": answers}
+        return await post_boolean(
+            client=self.client,
+            base_url=self.base_url,
+            endpoint=f"/question/{request_id}/reply",
+            payload=payload,
+            params=params,
+            error_prefix="Failed to reply to question",
+        )
+
+    async def question_reject(self, request_id: str, directory: str | None = None) -> bool:
+        params = {"directory": directory} if directory else None
+        return await post_boolean(
+            client=self.client,
+            base_url=self.base_url,
+            endpoint=f"/question/{request_id}/reject",
+            payload={},
+            params=params,
+            error_prefix="Failed to reject question",
+        )
+
+    async def permission_reply(
+        self,
+        request_id: str,
+        reply: str,
+        message: str | None = None,
+        directory: str | None = None,
+    ) -> bool:
+        params = {"directory": directory} if directory else None
+        payload: dict[str, Any] = {"reply": reply}
+        if message:
+            payload["message"] = message
+        return await post_boolean(
+            client=self.client,
+            base_url=self.base_url,
+            endpoint=f"/permission/{request_id}/reply",
+            payload=payload,
+            params=params,
+            error_prefix="Failed to reply to permission request",
+        )

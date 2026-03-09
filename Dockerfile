@@ -5,6 +5,7 @@ FROM python:3.12-alpine AS builder
 WORKDIR /build
 
 # Install build dependencies
+# hadolint ignore=DL3018
 RUN apk add --no-cache gcc musl-dev libffi-dev
 
 # Copy dependency files first for caching (include README.md for pyproject.toml)
@@ -43,12 +44,9 @@ ENV PATH="/app/.venv/bin:$PATH" \
 # Switch to non-root user
 USER jarvis
 
-# Expose webhook port
-EXPOSE 8080
-
-# Health check
-HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8080/health', timeout=5)" || exit 1
+# Health check - verifies OpenCode connectivity (required dependency)
+HEALTHCHECK --interval=30s --timeout=10s --start-period=30s --retries=3 \
+    CMD python -c "import os, httpx; r = httpx.get(os.getenv('OPENCODE_URL', 'http://localhost:4096') + '/global/health', timeout=5); exit(0 if r.status_code == 200 and r.json().get('healthy') else 1)" || exit 1
 
 # Run the bot
 CMD ["python", "-m", "jarvis"]

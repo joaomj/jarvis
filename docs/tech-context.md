@@ -39,15 +39,15 @@ Jarvis is a **personal AI assistant accessible via Telegram** that bridges mobil
 **Regular Chat Flow:**
 1. User types message in Telegram (e.g., "Explain the bug in src/auth.py")
 2. Jarvis receives via polling, checks authorization
-3. Jarvis forwards to OpenCode Server
-4. OpenCode processes (reads files, runs commands, calls LLM)
-5. OpenCode returns response to Jarvis
-6. Jarvis formats for Telegram (chunking, markdown escaping)
-7. User sees response on phone
+3. Jarvis sends async prompt to OpenCode (`/session/{id}/prompt_async`)
+4. Jarvis subscribes to OpenCode SSE events (`/event`) and tracks session progress
+5. On assistant completion event, Jarvis fetches latest assistant message parts
+6. Jarvis formats for Telegram (chunking, markdown escaping) and sends response
+7. User sees response on phone while bot remains responsive for callbacks
 
 **X Bookmarks Flow:**
 1. First message of the day triggers auto-sync
-2. Jarvis fetches new bookmarks from X API (incremental since last sync)
+2. Jarvis fetches new bookmarks from X API (daily incremental), with weekly full reconciliation
 3. Bookmarks stored in local SQLite database
 4. User queries via natural language (e.g., "Show me my recent bookmarks")
 5. Jarvis detects bookmark query, searches local DB
@@ -118,11 +118,21 @@ User Message (Telegram)
     ↓
 [Authorization Check] - SQLite allowlist lookup
     ↓ (authorized)
+[First Message After Restart?]
+    ├─ Yes → [Create New Session] - Unique timestamp in title
+    │         ↓
+    │       [Send Health Probe] - Test message "What day is today?"
+    │         ├─ Uses default model (first in favorite_models.json)
+    │         └─ Reports model, agent, session info to user
+    │         ↓
+    │       [Return Early] - Wait for user's next message
+    └─ No → [Use Existing Session] - Cached in memory
+    ↓
 [Detect Command Type] - /command vs regular text
     ↓
 [Forward to OpenCode Server]
     ├─ /command → POST /session/{id}/command
-    └─ text      → POST /session/{id}/message
+    └─ text      → POST /session/{id}/prompt_async
     ↓
 [OpenCode Processing]
     ├─ LLM inference
@@ -130,7 +140,10 @@ User Message (Telegram)
     ├─ Git operations
     └─ Bash commands
     ↓
-[Response Received] - Contains parts (text, tool results) + info (model, agent)
+[OpenCode Event Stream] - `message.updated`, `session.diff`, `question.asked`, `permission.asked`
+    ↓
+[Assistant Completion Detected]
+    └─ Jarvis fetches `/session/{id}/message?limit=30` for final assistant parts
     ↓
 [Format for Telegram]
     ├─ Markdown escaping
@@ -142,11 +155,35 @@ User Message (Telegram)
 [Log Response] - SQLite (session_id, user_id, model, text)
 ```
 
+**Interaction Guard:**
+- **HOW**: Question/permission flows are stateful and block unrelated user text
+- **WHY**: Prevents mixed inputs while the agent is waiting for explicit answers/approval
+- **WHAT**: Allowed during active flow: `/help`, `/status`, `/stop`; everything else is blocked or redirected
+- **WHERE**: `interaction_manager.py` + `event_processor.py`
+
+**Pinned Status Message:**
+- **HOW**: Maintain and update one pinned Telegram message with debounced edits
+- **WHY**: Always-visible operational state from mobile
+- **WHAT**: Session title, model, agent, approximate context tokens, changed files list
+- **WHERE**: `pinned_status.py` + event updates from `session.diff` and `message.updated`
+
+**Session Management:**
+- **HOW**: New session created on every bot restart (not just daily)
+- **WHY**: Ensures clean state, prevents stale model carryover, predictable behavior
+- **WHAT**: Session title includes timestamp: `jarvis-user-{user_id}-{YYYY-MM-DD-HHMMSS}`
+- **WHERE**: Session stored in SQLite for audit, cached in memory for fast access
+
+**Startup Health Probe:**
+- **HOW**: First message after bot restart triggers test message
+- **WHY**: Validates system is working before user starts real work
+- **WHAT**: Sends "What day is today?" with default model, reports status to user
+- **WHERE**: `bot.py::_send_daily_health_probe()`
+
 **Metrics:**
 - **HOW**: Logged at each step with correlation ID
-- **WHY**: Debug latency issues, track OpenCode reliability
-- **WHAT**: Typical latency: 2-5s end-to-end (depends on LLM response time)
-- **WHERE**: All steps logged in structured JSON logs
+- **WHY**: Debug latency issues, track OpenCode reliability and event-stream health
+- **WHAT**: Typical latency: 2-5s end-to-end; user input loop stays responsive during long runs
+- **WHERE**: Structured logs in bot, event processor, and OpenCode client
 
 ### Data Flow: X Bookmarks Sync
 
@@ -156,18 +193,21 @@ First Message of Day
 [Check Sync Status] - SQLite: x_sync_status.last_sync_date vs today
     ↓ (needs sync)
 [Fetch Bookmarks] - X API (httpx)
-    ├─ First run: fetch all (full sync)
-    └─ Subsequent: fetch since_id (incremental)
+    ├─ Daily: fetch since_id (incremental)
+    └─ Weekly (>= 7 days): fetch all pages (full mirror reconcile)
     ↓
 [Parse & Validate] - Pydantic models (Bookmark, Author, Metrics)
     ↓
 [Store in Database] - SQLite: x_bookmarks table
-    ├─ INSERT OR REPLACE (deduplication)
+    ├─ UPSERT by tweet_id (preserve bookmarked_at, refresh last_synced_at)
+    ├─ Weekly full reconcile prunes rows not returned by X API
     └─ Indexes: bookmarked_at, created_at
     ↓
 [Update Sync Status] - SQLite: x_sync_status
     ├─ last_sync_date = today
     ├─ last_tweet_id = newest_id
+    ├─ last_full_sync_date = date of last weekly full reconcile
+    ├─ last_folders_sync_date = date of last folder refresh
     └─ total_bookmarks = count
     ↓
 [Continue User Message] - Process normally via OpenCode
@@ -176,32 +216,34 @@ First Message of Day
 **Metrics:**
 - **HOW**: Timestamps logged at start/end, bookmark counts tracked
 - **WHY**: Monitor sync performance, detect rate limit issues
-- **WHAT**: Typical sync: 100-500 bookmarks in 10-30s (depends on API limits)
+- **WHAT**: Daily incremental is usually 0-1 API calls; weekly full reconcile fetches all pages
 - **WHERE**: Logged as "sync_completed" with new_bookmarks, total_bookmarks
 
-### Data Flow: X Bookmarks Query
+### Data Flow: Vault Query (via /recall)
 
 ```
-User Query (Telegram) - "What did I save last week?"
+User Command (Telegram) - "/recall my recent bookmarks"
     ↓
-[Detect Bookmark Query] - Keywords + time expression matching
-    ├─ Keywords: saved, bookmarked, my tweets, my bookmarks
-    ├─ Time: last week, yesterday, today, recent
-    └─ Pattern: must have keyword AND (time OR "recent")
-    ↓ (match)
-[Parse Time Range] - Convert natural time to ISO dates
-    ├─ "last week" → (now - 7 days) to now
-    ├─ "yesterday" → start of yesterday to end of yesterday
-    └─ "today" → start of today to now
+[OpenCode Command Handler] - Parse $ARGUMENTS
+    ├─ Extract query: "my recent bookmarks"
+    └─ Route to vault search
     ↓
-[Query Database] - SQLite: SELECT WHERE bookmarked_at BETWEEN ? AND ?
-    ├─ Indexed query on bookmarked_at
-    └─ ORDER BY bookmarked_at DESC
+[Vault Search] - BM25 retrieval across all sources
+    ├─ X bookmarks (from database)
+    ├─ Saved URLs (vault/url-saves/)
+    ├─ Attachments (vault/sources/attachments/)
+    └─ Memories (vault/memories/)
     ↓
-[Format Results] - Summaries with author, text preview, date
-    ├─ Max 10 shown (with "X more" if more)
-    ├─ HTML escaping for Telegram
-    └─ Option for details on specific tweet
+[Rank Results] - BM25 relevance scoring
+    ├─ Tokenize query
+    ├─ Search FTS index
+    └─ Return top N chunks with source attribution
+    ↓
+[Format Results] - Summaries with citations
+    ├─ Source type indicator (bookmark, URL, attachment, memory)
+    ├─ Text preview with relevance ranking
+    ├─ Citations in [doc:X chunk:Y] format
+    └─ HTML escaping for Telegram
     ↓
 [Send to User] - Via Telegram API
 ```
@@ -209,8 +251,80 @@ User Query (Telegram) - "What did I save last week?"
 **Metrics:**
 - **HOW**: Query execution time logged, result count tracked
 - **WHY**: Monitor query performance, detect indexing issues
-- **WHAT**: Typical query: <100ms for 1000 bookmarks
-- **WHERE**: Logged as "query_bookmarks" with results count, execution_time
+- **WHAT**: Typical query: <100ms for 1000 documents
+- **WHERE**: Logged as "vault_query" with results count, execution_time, source_breakdown
+
+### Data Flow: URL Save (/save command)
+
+```
+User Command (Telegram) - "/save https://example.com/article"
+    ↓
+[OpenCode Command Handler] - Parse $ARGUMENTS
+    ├─ Extract URL from arguments
+    └─ Invoke Firecrawl workflow
+    ↓
+[Firecrawl Scraping]
+    ├─ Fetch and parse HTML
+    ├─ Extract main content
+    └─ Generate markdown with YAML frontmatter
+    ↓
+[Save to Vault]
+    ├─ Write markdown to `vault/url-saves/`
+    ├─ Frontmatter: url, title, captured_at, author, etc.
+    └─ Confirm file path
+    ↓
+[KB Indexing]
+    ├─ Scan new markdown file
+    ├─ Parse frontmatter
+    ├─ Chunk by headings + max chars
+    └─ Upsert docs/chunks + FTS rows in SQLite
+    ↓
+[User Confirmation] - "Saved and indexed: <filename>"
+```
+
+**Alternative: URL-only message suggestion**
+```
+User sends: "https://example.com/article" (URL only)
+    ↓
+[Bot detects URL-only message]
+    ↓
+[Suggests command] - "💡 To save this URL, use /save https://example.com/article"
+```
+
+### Data Flow: Grounded KB Answers
+
+```
+User Command (Telegram) - "/recall what did I save about machine learning?"
+    ↓
+[OpenCode Command Handler] - Parse $ARGUMENTS
+    ├─ Extract query: "what did I save about machine learning?"
+    └─ Route to vault search
+    ↓
+[Staleness Check]
+    ├─ If index older than threshold, rescan markdown files
+    └─ Otherwise use current index
+    ↓
+[Lexical Retrieval]
+    ├─ Build safe FTS query from question tokens
+    ├─ Retrieve top chunks from `kb_chunks_fts`
+    └─ Apply per-document diversity cap
+    ↓
+[Grounded Response]
+    ├─ Strict "context only" instructions
+    ├─ Citation format: `[doc:<id> chunk:<index>]`
+    ├─ If citations missing → "insufficient evidence" response
+    └─ Include source list (title + URL/path)
+    ↓
+[Telegram Response] - Answer with citations via OpenCode
+```
+
+### Knowledge Base Schema (SQLite)
+
+- `kb_documents`: metadata + content hash per markdown file (`markdown_path` unique)
+- `kb_chunks`: deterministic chunk rows per document (`document_id`, `chunk_index` unique)
+- `kb_chunks_fts`: FTS5 lexical index over `chunk_text` and `heading`
+- `kb_ingest_log`: non-fatal ingest errors per file for observability
+- Indexes: `kb_documents(url_canonical)`, `kb_documents(indexed_at)`, `kb_chunks(document_id, chunk_index)`
 
 ### State Machine: Bookmark Sync Lifecycle
 
@@ -252,60 +366,69 @@ User Query (Telegram) - "What did I save last week?"
 │                   Telegram Bot                         │
 │            (python-telegram-bot 21+)                  │
 └────────────────────┬────────────────────────────────┘
-                     │
-                     ▼
-         ┌───────────────────────┐
-         │    Jarvis Bot         │
-         │  (bot.py)            │
-         │  - Polling Engine    │
-         │  - Command Router    │
-         │  - Query Detector    │
-         └───────────┬───────────┘
-                     │
-         ┌───────────┴───────────┐
-         ▼                       ▼
-┌──────────────────┐    ┌────────────────────┐
-│ Command Router   │    │ Query Detector    │
-│                 │    │                  │
-│ - Blocked       │    │ - Is bookmark?   │
-│ - Bridge-native │    │ - Time range?    │
-│ - Intercept     │    │ - Parse query    │
-│ - Pass-through  │    └────────┬─────────┘
-└───────┬─────────┘             │
-        │                       │
-        │ Regular Chat           │ Bookmarks
-        ▼                       │
-┌──────────────────┐             │
-│ OpenCode Client  │             ▼
-│ (httpx)         │    ┌────────────────────┐
-│                 │    │  Bookmarks Sync    │
-└───────┬─────────┘    │  (sync.py)        │
-        │               │                    │
-        ▼               │ - Auto-sync        │
-┌──────────────────┐    │ - Incremental     │
-│ OpenCode Server  │    │ - Error handling  │
-│                 │    └─────────┬──────────┘
-│ - LLM inference  │              │
-│ - File ops      │              ▼
-│ - Git ops      │    ┌────────────────────┐
-│ - Bash cmds    │    │  X API Client     │
-└──────────────────┘    │  (httpx)          │
-                       │                    │
-                       │ - Pagination       │
-                       │ - Rate limiting    │
-                       │ - OAuth 2.0       │
-                       └─────────┬──────────┘
-                                ▼
-                      ┌────────────────────┐
-                      │  SQLite Database   │
-                      │                  │
-                      │ - x_bookmarks    │
-                      │ - x_sync_status  │
-                      │ - responses      │
-                      │ - users          │
-                      └──────────────────┘
+                      │
+                      ▼
+          ┌───────────────────────┐
+          │    Jarvis Bot         │
+          │    (bot.py)          │
+          │  - Session Manager   │
+          │  - Model Selector    │
+          │  - Polling Engine    │
+          │  - Command Router    │
+          └───────────┬───────────┘
+                      │
+        ┌─────────────┼─────────────┐
+        │             │             │
+        ▼             ▼             ▼
+┌─────────────┐ ┌─────────────┐ ┌──────────────────┐
+│  Session    │ │   Model    │ │  Command Router  │
+│  Manager    │ │  Selector  │ │                  │
+│(session_    │ │(model_     │ │ - Blocked        │
+│ manager.py) │ │ selector.py│ │ - Bridge-native  │
+└──────┬──────┘ └──────┬──────┘ │ - Intercept      │
+       │               │        │ - Pass-through   │
+       │               │        └───────┬──────────┘
+       │               │                │
+       │               │ Regular Chat   │ Bookmarks
+       ▼               ▼                │
+┌──────────────┐  ┌─────────────┐        │
+│ OpenCode     │  │ OpenCode    │        │
+│ Client       │  │ Client      │        │
+└──────┬───────┘  └──────┬──────┘        │
+       │                 │               │
+       ▼                 ▼               ▼
+┌──────────────────┐             ┌────────────────────┐
+│  OpenCode Server │             │   Vault Search     │
+│                  │             │    (via /recall)   │
+│ - LLM inference  │             │                    │
+│ - File ops      │             │ - BM25 retrieval   │
+│ - Git ops      │             │ - All vault content│
+│ - Bash cmds    │             └────────┬───────────┘
+└──────────────────┘                      │
+       │                                  │
+       │ X Bookmarks                      ▼
+       ▼                          ┌────────────────────┐
+┌──────────────────┐             │  Bookmarks Sync    │
+│  Bookmarks       │             │    (sync.py)       │
+│  Client         │             │                    │
+│ (bookmarks/     │             │ - Auto-sync        │
+│  client.py)     │             │ - Daily incremental│
+│  + parser.py)   │             │ - Weekly reconcile │
+└────────┬────────┘             └─────────┬───────────┘
+         │                               │
+         ▼                               ▼
+┌──────────────────┐             ┌────────────────────┐
+│    X API Client  │             │  SQLite Database   │
+│     (httpx)      │             │   (database/)     │
+│                  │             │                    │
+│ - OAuth 2.0     │             │ - users.py        │
+│ - Rate limiting │             │ - messages.py     │
+│ - Pagination    │             │ - bookmarks.py    │
+└────────┬────────┘             │ - oauth.py        │
+         │                     │ - core.py          │
+         ▼                     └────────────────────┘
+   (External X API)
 ```
-
 ---
 
 ## Tech Context
@@ -393,22 +516,25 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 
 **HOW**:
 - Trigger: First Telegram message of each day
-- Mode: Full sync on first run, incremental sync thereafter
-- Pagination: Uses `since_id` parameter to fetch only new bookmarks
-- Status tracking: `x_sync_status` table stores last_sync_date, last_tweet_id, total_bookmarks
+- Mode: Daily incremental sync + weekly full mirror reconcile (>=7 days)
+- Pagination: Daily uses `since_id`; weekly full reconcile paginates all bookmarks
+- Folder sync: Folder assignments are rebuilt weekly during full reconcile
+- Payload minimization: bookmark fetch requests only `id`, `text`, `created_at`, and `author.username`
+- Status tracking: `x_sync_status` stores last_sync_date, last_tweet_id, last_full_sync_date, last_folders_sync_date, total_bookmarks
 - Authentication: OAuth 2.0 tokens auto-refresh when expired
 
 **WHY**:
 - Daily sync balances freshness vs. API cost ($0.005/request)
-- Incremental sync avoids re-fetching entire bookmark collection
+- Incremental sync minimizes daily API usage
+- Weekly full reconcile keeps local DB as a true mirror (handles deletions/unbookmarks)
 - On-message trigger eliminates background scheduler complexity
 - Status tracking enables idempotent syncs (retry-safe)
 - Token refresh ensures continuous access without re-authorization
 
 **WHAT**:
-- Typical sync: 10-30 seconds for 100-500 bookmarks
-- Cost: ~$0.50 per 100-bookmark sync ($0.005 per bookmark)
-- Sync frequency: Once per day
+- Daily sync is optimized for low cost by fetching only new bookmarks
+- Weekly full reconcile cost scales with total bookmarks and folder pagination
+- Sync frequency: Daily incremental + weekly full reconcile
 
 **WHERE**:
 - Sync logic: `src/jarvis/bookmarks/sync.py`
@@ -440,9 +566,9 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 - Accuracy: ~95% for common patterns (improvable with LLM parsing)
 
 **WHERE**:
-- Query detection: `bot.py::_is_bookmark_query()` line 119-126
-- Query handling: `bot.py::_handle_bookmark_query()` line 128-153
-- Natural language parsing: `handlers/commands.py::query_bookmarks()` line 281-352
+- Command definition: `.opencode/commands/recall.md`
+- Vault search: BM25 retrieval across all indexed content
+- X bookmarks: Auto-synced via `bookmarks/sync.py`, searchable via `/recall`
 
 **Tradeoffs:**
 - **Current**: Simple keyword matching, no semantic search
@@ -462,7 +588,8 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 - `created_at`, `updated_at` (TIMESTAMP) - Token metadata
 
 **x_bookmarks table:**
-- `tweet_id` (TEXT UNIQUE, PRIMARY KEY) - Tweet unique identifier
+- `id` (INTEGER PRIMARY KEY AUTOINCREMENT) - Internal row ID
+- `tweet_id` (TEXT UNIQUE NOT NULL) - Tweet unique identifier
 - `author_username`, `author_name`, `author_verified` - Author info
 - `text` (TEXT NOT NULL) - Tweet content
 - `created_at`, `bookmarked_at` (TIMESTAMP) - Time metadata
@@ -470,14 +597,29 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 - `like_count`, `retweet_count`, `reply_count`, `impression_count`, `bookmark_count` (INTEGER) - Engagement metrics
 - `media_urls` (TEXT) - JSON array of media URLs
 - `urls_expanded` (TEXT) - JSON array of expanded URLs
-- `context_annotations` (TEXT) - JSON array of context annotations (future topic filtering)
-- `raw_json` (TEXT) - Full tweet data for future use
+- `context_annotations` (TEXT) - JSON array of context annotations (legacy/optional)
+- `raw_json` (TEXT) - Raw payload snapshot for troubleshooting
+- `last_synced_at` (TIMESTAMP) - Last successful sync timestamp for this bookmark
+
+**x_bookmark_folders table:**
+- `folder_id` (TEXT PRIMARY KEY) - Folder ID from X API
+- `folder_name` (TEXT NOT NULL) - Folder display name
+- `created_at` (TIMESTAMP) - First time seen locally
+
+**x_bookmark_folder_assignments table:**
+- `tweet_id` (TEXT NOT NULL) - Bookmark tweet ID
+- `folder_id` (TEXT NOT NULL) - Folder ID
+- `assigned_at` (TIMESTAMP) - Assignment sync timestamp
+- Composite primary key `(tweet_id, folder_id)`
+- Foreign keys to `x_bookmarks(tweet_id)` and `x_bookmark_folders(folder_id)` with cascade delete
 
 **x_sync_status table:**
 - `id` (INTEGER PRIMARY KEY CHECK (id = 1)) - Single row
 - `last_sync_date` (TEXT) - ISO date string of last sync (YYYY-MM-DD)
 - `last_sync_at` (TIMESTAMP) - Full timestamp of last sync
 - `last_tweet_id` (TEXT) - Most recent tweet ID synced
+- `last_full_sync_date` (TEXT) - Last weekly full mirror reconcile date
+- `last_folders_sync_date` (TEXT) - Last folder membership refresh date
 - `total_bookmarks` (INTEGER) - Total count of bookmarks in DB
 - `sync_in_progress` (BOOLEAN) - Prevents concurrent syncs
 - `first_sync_complete` (BOOLEAN) - Distinguishes first run from subsequent runs
@@ -485,6 +627,8 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 **Indexes:**
 - `idx_bookmarks_bookmarked_at` on `x_bookmarks(bookmarked_at)` - Fast time-range queries
 - `idx_bookmarks_created_at` on `x_bookmarks(created_at)` - Fast tweet creation queries
+- `idx_bookmark_folders_tweet_id` on `x_bookmark_folder_assignments(tweet_id)` - Fast export by tweet
+- `idx_bookmark_folders_folder_id` on `x_bookmark_folder_assignments(folder_id)` - Fast export by folder
 
 ### Error Handling Strategy
 
@@ -514,7 +658,7 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 - **How**: Telegram user ID allowlist in SQLite database
 - **Why**: Simple, no OAuth complexity, works with Telegram's existing auth
 - **What**: Single user (can be extended to multi-user allowlist)
-- **Where**: `database.py::is_user_allowed()` checks user_id
+- **Where**: `database/users.py::UserManager.is_user_allowed()` checks user_id
 
 **Network Security:**
 - **How**: Polling only, no public ports, no webhooks
@@ -602,13 +746,16 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 **`.jarvis/favorite_models.json`**:
 ```json
 [
-  "anthropic/claude-sonnet-4-20250514",
-  "openai/gpt-4o",
-  "google/gemini-2.5-pro"
+  "openai/gpt-5.2",
+  "zai/glm-4.7",
+  "openai/gpt-5.3-codex"
 ]
 ```
 
-**Why?** Provides quick model selection without typing full provider/model strings.
+**Why?** 
+- First model in list is used as default for new sessions
+- Provides quick model selection without typing full provider/model strings
+- Used as fallback when OpenCode returns model-related errors
 
 ---
 
@@ -667,7 +814,7 @@ pdm run python -m jarvis
 pdm run pytest
 
 # Specific test file
-pdm run pytest tests/test_bookmarks.py -v
+pdm run pytest tests/test_bookmark_client_sync.py -v
 
 # With coverage
 pdm run pytest --cov=src/jarvis --cov-report=term-missing

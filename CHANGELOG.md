@@ -4,6 +4,194 @@ All notable changes to Jarvis will be documented in this file.
 
 ## [Unreleased]
 
+## [Changed] - 2026-03-08 - Command-Based Interface Migration
+
+### Added Commands
+- **`/save`**: Save URLs to vault via Firecrawl workflow
+  - Usage: `/save https://example.com/article`
+  - Scrapes content and saves as markdown to `vault/url-saves/`
+  - Indexes content for retrieval via `/recall`
+- **`/recall`**: Search all vault content
+  - Usage: `/recall machine learning papers`
+  - Searches X bookmarks, saved URLs, attachments, and memories
+  - Uses BM25 retrieval with source attribution
+
+### Removed Natural Language Routing
+- Removed intent detection methods:
+  - `_is_save_intent()` - URL-only detection replaced by explicit `/save`
+  - `_handle_save_intent()` - Natural language save flow removed
+  - `_is_kb_answer_intent()` - KB query detection removed
+  - `_handle_kb_answer_intent()` - Grounded answer flow removed
+  - `_is_bookmark_query()` - Bookmark NL detection removed
+  - `_handle_bookmark_query()` - Bookmark query handling removed
+- Deleted `src/jarvis/handlers/bookmarks.py` (replaced by `/recall` command)
+- Deleted `.opencode/skills/x-bookmarks/` (replaced by `/recall`)
+
+### UX Changes
+- URL-only messages now suggest `/save` command
+- Explicit commands preferred over natural language for actions
+
+### Documentation Updates
+- `AGENTS.md`: Updated routing rules for commands, removed skill routing
+- `docs/roadmap.md`: Marked Phase 9.1 partially complete
+- `docs/tech-context.md`: Updated data flow diagrams for command-based workflow
+
+### Code Quality
+- Moved URL utilities to `utils.py` to fix file length
+- All pre-commit hooks passing
+- 94 tests passing
+
+## [Added] - 2026-03-02 - Integration-First Test Gates and Harnesses
+
+### Test Harness Foundation
+- Added shared deterministic harnesses under `tests/harness/`:
+  - `fake_telegram.py` for message/edit/pin/file behavior
+  - `update_factory.py` for typed message/callback/document update builders
+  - `fake_opencode_server.py` for in-process JSON and SSE contract testing
+- Added harness smoke coverage in `tests/test_harness_smoke.py`
+- Added pytest markers for tiered execution: `fast`, `integration`, `e2e_opencode`
+
+### Integration Coverage Upgrades
+- Replaced OpenCode client mock-heavy tests with HTTP contract tests against fake OpenCode server
+- Added event pipeline integration tests covering async completion lifecycle, interaction callbacks, and pinned status updates
+- Upgraded memory routing tests to integration contracts for remember/forget/recall/confirmation/private audit behavior
+- Upgraded attachment + source-priority tests with real vault/index flows and web-fallback citation coverage
+- Upgraded deep-research tests for deterministic stage order, confirm/cancel callback lifecycle, and malformed-stage failure handling
+
+### Optional Real OpenCode Smoke Tier
+- Added opt-in `e2e_opencode` smoke suite in `tests/test_e2e_opencode_smoke.py`
+- Smoke scenarios cover memory intent prompts, grounded KB answer prompting, and deep-research gate/job execution
+- Suite is disabled by default and enabled with `JARVIS_ENABLE_E2E_OPENCODE=1`
+
+### CI and Quality Gates
+- Updated GitHub Actions CI to run `pytest -m "fast or integration"` for PR/push validation
+- Added targeted mypy gate for deep-research orchestration (`src/jarvis/deep_research.py`)
+- Added scheduled/manual `e2e_opencode` workflow job for real server smoke execution
+
+### Test Suite Status
+- Default PR tiers: 96 passing (`fast` + `integration`), 3 deselected (`e2e_opencode`)
+
+## [Added] - 2026-03-01 - Vault Memory + Attachment Retrieval + Deep Research
+
+### Memory (Vault-First)
+- Added curated memory storage in local `vault/` with remember/forget/recall flows
+- Added SQLite `memory_entries` table for searchable memory metadata and active/forgotten lifecycle
+- Added private-turn persistence guard so private prompts skip turn logging/storage paths
+- Memory intent routing now uses LLM classification (via OpenCode) instead of hardcoded expression matching
+
+### Attachment Ingestion and Retrieval Priority
+- Added Telegram document ingestion for text attachments
+- Attachments are persisted under `vault/sources/attachments/` and indexed for grounded retrieval
+- Retrieval ranking now prioritizes attachment chunks ahead of other sources
+
+### Source-Grounded Answering
+- Added web fallback path for grounded answers when local evidence is insufficient
+- Fallback uses OpenCode deep-research agents for source discovery and synthesis with inline web citations
+
+### Deep Research Orchestration
+- Added staged deep research orchestration in Jarvis with local artifact workspace under `vault/research/<job-id>/`
+- Added dr-gate classification + explicit confirmation flow before running expensive deep research jobs
+- Added subagent stage execution across planner/query/search/triage/evidence/writer/editor/auditor
+- Added callback-driven Telegram UX for confirm/cancel deep research execution
+
+### Testing and Quality
+- Added dedicated tests for memory store/routing, private persistence, attachment ingestion/ranking, and deep research workflow
+- Full suite status: 86 tests passing
+
+## [Changed] - 2026-02-23 - Weekly Mirror Reconcile + Low-Cost Daily Sync
+
+### X Bookmarks Sync Strategy
+- Switched to **daily incremental sync** (`since_id`) and **weekly full reconcile** (>= 7 days)
+- Full reconcile now mirrors remote state by pruning local bookmarks not returned by X
+- Folder memberships are refreshed during weekly reconcile
+
+### Bookmark Accounting
+- `new_bookmarks` now counts only truly new `tweet_id` values (not all saved rows)
+- `total_bookmarks` is now computed from `COUNT(DISTINCT tweet_id)` in SQLite
+- Added `deleted_bookmarks` in sync result/log output for reconcile visibility
+
+### Database Schema / Migration
+- Added `x_sync_status.last_full_sync_date`
+- Added `x_sync_status.last_folders_sync_date`
+- Added startup migration for existing DBs via `PRAGMA table_info` + `ALTER TABLE`
+
+### Storage Semantics
+- Replaced `INSERT OR REPLACE` with UPSERT in `x_bookmarks` writes
+- Preserves row identity and `bookmarked_at` while updating mutable fields and `last_synced_at`
+
+### API Payload Minimization
+- Bookmark fetch now requests minimal fields while preserving username support:
+  - Tweet: `id`, `text`, `created_at`, `author_id`
+  - User: `username`
+- `tweet_url` now uses `x.com` format with fallback to `x.com/i/web/status/{id}` when username is missing
+
+### Reliability
+- Bookmark pagination failures now fail fast instead of silently truncating sync results
+
+### Tests
+- Added tests for UPSERT behavior preserving row identity
+- Added tests for mark-unsynced + prune mirror flow
+- Current test status: 52 passing
+
+### Documentation
+- Replaced `docs/x-bookmarks-queries.md` with `docs/sql-query-examples.md` scoped as a concise SQL cookbook for local databases
+
+## [Added] - 2026-02-18 - X Bookmarks Folder Support
+
+### Database Schema
+- **New tables**: `x_bookmark_folders` and `x_bookmark_folder_assignments`
+  - Junction table design supports many-to-many relationship (bookmark can be in multiple folders)
+  - Foreign key constraints with CASCADE delete
+  - Indexes on tweet_id and folder_id for fast lookups
+
+### API Client Changes
+- Added `get_bookmark_folders()` - fetch folder definitions (ID, name)
+- Added `get_folder_bookmark_ids()` - fetch only tweet IDs from a folder (X API limitation)
+- Added `get_all_folder_bookmark_ids()` - paginated folder ID fetching
+- Note: X API folder endpoint only returns tweet IDs, not full bookmark data
+
+### Sync Strategy Redesign
+- **Step 1**: Fetch all bookmarks with full data (99 max per sync)
+- **Step 2**: Fetch folder definitions
+- **Step 3**: Fetch tweet IDs per folder, cross-reference with full data
+- **Result**: Accurate folder assignments without duplicate API calls
+- Full sync clears existing folder assignments before rebuilding
+
+### Database Operations
+- Added `save_folder()` - upsert folder definitions
+- Added `assign_bookmark_to_folder()` - create junction records
+- Added `clear_all_folder_assignments()` - for full re-sync
+- Added `get_folders_for_bookmark()` - query folders for a bookmark
+
+### New Models
+- `BookmarkFolder` - folder_id, folder_name
+- `BookmarkWithFolders` - extends Bookmark with folder_ids list
+
+### Query Examples
+```sql
+-- Export bookmarks from specific folder
+SELECT b.text FROM x_bookmarks b
+JOIN x_bookmark_folder_assignments a ON b.tweet_id = a.tweet_id
+JOIN x_bookmark_folders f ON a.folder_id = f.folder_id
+WHERE f.folder_name = 'Context retrieval';
+
+-- Export with folder names (CSV)
+SELECT b.text, GROUP_CONCAT(f.folder_name, ', ') as folders
+FROM x_bookmarks b
+LEFT JOIN x_bookmark_folder_assignments a ON b.tweet_id = a.tweet_id
+LEFT JOIN x_bookmark_folders f ON a.folder_id = f.folder_id
+GROUP BY b.tweet_id;
+```
+
+### Migration Path
+```bash
+# Clear existing data and re-sync with folders
+sqlite3 .jarvis/jarvis.db "DELETE FROM x_bookmark_folder_assignments; DELETE FROM x_bookmark_folders; DELETE FROM x_bookmarks; UPDATE x_sync_status SET first_sync_complete=0;"
+
+# Run full sync
+pdm run python -c "import asyncio; from jarvis.config import get_settings; from jarvis.database import Database; from jarvis.bookmarks.sync import BookmarkSync; s = get_settings(); db = Database(s.database_path); sync = BookmarkSync(db, s.x_client_id, s.x_client_secret); asyncio.run(sync.sync_bookmarks(full_sync=True))"
+```
+
 ## [Changed] - 2026-02-16 - X Bookmarks OAuth 2.0 Migration
 
 ### Authentication Migration
