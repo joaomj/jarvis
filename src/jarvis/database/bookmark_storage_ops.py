@@ -36,6 +36,7 @@ class BookmarkStorageOperations(DatabaseCore):
         """Save a bookmark row with upsert semantics."""
         try:
             with sqlite3.connect(self.db_path) as conn:
+                conn.execute("PRAGMA foreign_keys = ON")
                 conn.execute(
                     """INSERT INTO x_bookmarks
                        (tweet_id, author_username, author_name, author_verified, text,
@@ -82,12 +83,14 @@ class BookmarkStorageOperations(DatabaseCore):
                     ),
                 )
         except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as error:
-            logger.warning("save_bookmark_failed", tweet_id=tweet_id, error=str(error))
+            logger.error("save_bookmark_failed", tweet_id=tweet_id, error=str(error))
+            raise
 
     def get_all_bookmark_ids(self) -> set[str]:
         """Get all bookmark tweet IDs."""
         try:
             with sqlite3.connect(self.db_path) as conn:
+                conn.execute("PRAGMA foreign_keys = ON")
                 cursor = conn.execute("SELECT tweet_id FROM x_bookmarks")
                 return {row[0] for row in cursor.fetchall()}
         except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as error:
@@ -98,6 +101,7 @@ class BookmarkStorageOperations(DatabaseCore):
         """Get total distinct bookmark count in database."""
         try:
             with sqlite3.connect(self.db_path) as conn:
+                conn.execute("PRAGMA foreign_keys = ON")
                 cursor = conn.execute("SELECT COUNT(DISTINCT tweet_id) FROM x_bookmarks")
                 row = cursor.fetchone()
                 return int(row[0]) if row else 0
@@ -109,6 +113,7 @@ class BookmarkStorageOperations(DatabaseCore):
         """Mark all bookmarks as unsynced for full mirror reconciliation."""
         try:
             with sqlite3.connect(self.db_path) as conn:
+                conn.execute("PRAGMA foreign_keys = ON")
                 conn.execute("UPDATE x_bookmarks SET last_synced_at = NULL")
         except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as error:
             logger.warning("mark_all_bookmarks_unsynced_failed", error=str(error))
@@ -117,6 +122,7 @@ class BookmarkStorageOperations(DatabaseCore):
         """Delete bookmarks not seen during current full reconciliation."""
         try:
             with sqlite3.connect(self.db_path) as conn:
+                conn.execute("PRAGMA foreign_keys = ON")
                 cursor = conn.execute("DELETE FROM x_bookmarks WHERE last_synced_at IS NULL")
                 return cursor.rowcount
         except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as error:
@@ -127,6 +133,7 @@ class BookmarkStorageOperations(DatabaseCore):
         """Get bookmarks within time range."""
         try:
             with sqlite3.connect(self.db_path) as conn:
+                conn.execute("PRAGMA foreign_keys = ON")
                 cursor = conn.execute(
                     """SELECT tweet_id, author_username, author_name, author_verified,
                               text, note_text, created_at, bookmarked_at, tweet_url,
@@ -152,6 +159,7 @@ class BookmarkStorageOperations(DatabaseCore):
         """Get a specific bookmark by tweet ID."""
         try:
             with sqlite3.connect(self.db_path) as conn:
+                conn.execute("PRAGMA foreign_keys = ON")
                 cursor = conn.execute(
                     """SELECT tweet_id, author_username, author_name, author_verified,
                               text, note_text, created_at, bookmarked_at, tweet_url,

@@ -207,3 +207,29 @@ class SessionOperations(DatabaseCore):
                 error=str(e),
             )
             return 0
+
+    def is_session_owned_by_user(self, session_id: str, user_id: int) -> bool:
+        """Check if a session ID belongs to the given user.
+
+        Args:
+            session_id: OpenCode session ID to check.
+            user_id: Telegram user ID.
+
+        Returns:
+            True if the session exists and belongs to the user, False otherwise.
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    "SELECT 1 FROM opencode_sessions WHERE opencode_session_id = ? AND telegram_user_id = ?",
+                    (session_id, user_id),
+                )
+                return cursor.fetchone() is not None
+        except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as e:
+            logger.error(
+                "session_ownership_check_failed",
+                session_id=session_id,
+                user_id=user_id,
+                error=str(e),
+            )
+            return False

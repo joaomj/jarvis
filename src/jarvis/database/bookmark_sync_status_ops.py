@@ -90,3 +90,20 @@ class BookmarkSyncStatusOperations(DatabaseCore):
         except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as error:
             logger.warning("get_first_sync_status_failed", error=str(error))
             return False
+
+    def acquire_sync_lock(self) -> bool:
+        """Atomically acquire sync lock.
+
+        Returns True if lock was acquired (sync_in_progress was 0),
+        False if already locked (sync_in_progress was 1).
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("PRAGMA foreign_keys = ON")
+                cursor = conn.execute(
+                    "UPDATE x_sync_status SET sync_in_progress = 1 WHERE id = 1 AND sync_in_progress = 0"
+                )
+                return cursor.rowcount == 1
+        except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as error:
+            logger.error("acquire_sync_lock_failed", error=str(error))
+            return False

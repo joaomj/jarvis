@@ -215,6 +215,7 @@ class DatabaseCore:
     def _init_db(self) -> None:
         """Create tables if they don't exist."""
         with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA foreign_keys = ON")
             conn.executescript(SCHEMA)
             self._migrate_sync_status_columns(conn)
 
@@ -247,6 +248,7 @@ class DatabaseCore:
             List of rows if fetch=True, None otherwise.
         """
         with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA foreign_keys = ON")
             if fetch:
                 cursor = conn.execute(query, params)
                 return cursor.fetchall()
@@ -268,6 +270,7 @@ class DatabaseCore:
             List of dictionaries with column names as keys.
         """
         with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA foreign_keys = ON")
             cursor = conn.execute(query, params)
             columns = [desc[0] for desc in cursor.description]
             return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]

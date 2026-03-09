@@ -51,7 +51,7 @@ class BookmarkSync:
             token_refresh_buffer_seconds=token_refresh_buffer_seconds,
         )
 
-    async def sync_bookmarks(  # noqa: PLR0912, PLR0915
+    async def sync_bookmarks(  # noqa: PLR0912
         self,
         full_sync: bool = False,
         sync_folders: bool = False,
@@ -69,13 +69,10 @@ class BookmarkSync:
         Returns:
             Dictionary with sync results.
         """
-        sync_status = self.db.get_sync_status()
-
-        if sync_status and sync_status.get("sync_in_progress"):
+        # Atomic lock acquisition using conditional update
+        if not self.db.acquire_sync_lock():
             logger.warning("sync_already_in_progress")
             return {"status": "skipped", "reason": "Sync already in progress"}
-
-        self.db.update_sync_status(sync_in_progress=True)
 
         try:
             existing_ids = self.db.get_all_bookmark_ids()

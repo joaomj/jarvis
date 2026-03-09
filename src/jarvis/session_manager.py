@@ -148,3 +148,15 @@ class SessionManager:
             List of session records.
         """
         return self._db.get_session_history(user_id, limit)
+
+    def is_session_owned_by_user(self, session_id: str, user_id: int) -> bool:
+        """Check if a session ID is owned by the given user.
+
+        Args:
+            session_id: OpenCode session ID to check.
+            user_id: Telegram user ID.
+
+        Returns:
+            True if the session belongs to the user, False otherwise.
+        """
+        return self._db.is_session_owned_by_user(session_id, user_id)

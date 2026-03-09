@@ -7,6 +7,7 @@ from typing import Any
 
 from telegram import Update
 
+from jarvis.command_router import route_command
 from jarvis.logging_config import get_logger
 from jarvis.opencode_client import OpenCodeError
 from jarvis.utils import is_url_only
@@ -58,14 +59,45 @@ class BotUpdateMixin:
         if not self.opencode:
             raise RuntimeError("OpenCode not initialized")
 
-        if processed_text.startswith("!"):
+        # Handle both Telegram /commands and !commands
+        if processed_text.startswith("/") or processed_text.startswith("!"):
+            prefix = processed_text[0]
             parts = processed_text[1:].split(maxsplit=1)
             command = parts[0]
             arguments = parts[1] if len(parts) > 1 else ""
+
             if command in {"models", "favmodels"}:
                 await self._start_model_selection(update, user_id)
                 return None
-            response_parts, info = await self.opencode.send_command(session_id, command, arguments)
+
+            # Route bridge commands for both / and ! prefixes
+            handled_locally, result = await route_command(command, arguments, user_id, self)
+            if handled_locally:
+                await self._send_feedback_message(
+                    update,
+                    user_id,
+                    result,
+                    source="command",
+                    prompt_text=f"[command] {command}",
+                    parse_mode="HTML",
+                )
+                return None
+
+            # If not handled locally, send to OpenCode (only for ! prefix)
+            if prefix == "!":
+                response_parts, info = await self.opencode.send_command(
+                    session_id, command, arguments
+                )
+            else:
+                # For /commands not handled locally, treat as unknown
+                await self._send_feedback_message(
+                    update,
+                    user_id,
+                    f"Unknown command: /{command}",
+                    source="command",
+                    prompt_text=f"[unknown command] {command}",
+                )
+                return None
         else:
             if self.events.has_pending_prompt(session_id):
                 await self._send_feedback_message(

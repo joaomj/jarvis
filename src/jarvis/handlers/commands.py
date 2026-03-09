@@ -157,7 +157,7 @@ async def _handle_list_sessions(_args: str, user_id: int, bot: "JarvisBot") -> s
 
         lines = [
             "📋 <b>Your Sessions</b>\n",
-            f"Current: <code>{current_session[:16]}...</code>"
+            f"Current: <code>{html.escape(current_session[:16])}...</code>"
             if current_session != "None"
             else "No active session",
             "\nTo create new: /new",
@@ -186,11 +186,21 @@ async def _handle_switch(args: str, user_id: int, bot: "JarvisBot") -> str:
             return "Usage: /switch &lt;session_id&gt;"
 
         session_id = args.strip()
+
+        # Validate session ownership before switching
         if bot.session_manager:
+            if not bot.session_manager.is_session_owned_by_user(session_id, user_id):
+                logger.warning(
+                    "unauthorized_session_switch_attempt",
+                    session_id=session_id,
+                    user_id=user_id,
+                )
+                return "❌ Invalid session ID. You can only switch to your own sessions."
+
             bot.session_manager.set_session(user_id, session_id)
 
         logger.info("Switched session", session_id=session_id, user_id=user_id)
-        return f"✅ Switched to session: <code>{session_id}</code>"
+        return f"✅ Switched to session: <code>{html.escape(session_id)}</code>"
     except Exception as e:
         logger.error("_handle_switch_failed", error=str(e), exc_info=True)
         return "❌ Failed to switch session. Please try again."

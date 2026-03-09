@@ -4,6 +4,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
 from pathlib import Path
 from typing import Any
@@ -34,6 +35,7 @@ class BotKBMixin:
         )
 
     def _run_kb_startup_scan(self) -> None:
+        """Run KB startup scan synchronously."""
         if not self.kb_indexer:
             return
         result = self.kb_indexer.index_all()
@@ -44,6 +46,22 @@ class BotKBMixin:
             skipped_files=result.skipped_files,
             failed_files=result.failed_files,
         )
+
+    async def _run_kb_startup_scan_async(self) -> None:
+        """Run KB startup scan asynchronously to avoid blocking."""
+        if not self.kb_indexer:
+            return
+        try:
+            result = await asyncio.to_thread(self.kb_indexer.index_all)
+            logger.info(
+                "kb_startup_index_complete",
+                scanned_files=result.scanned_files,
+                indexed_files=result.indexed_files,
+                skipped_files=result.skipped_files,
+                failed_files=result.failed_files,
+            )
+        except Exception as e:
+            logger.error("kb_startup_scan_failed", error=str(e))
 
     def _extract_urls(self, text: str) -> list[str]:
         return URL_RE.findall(text)

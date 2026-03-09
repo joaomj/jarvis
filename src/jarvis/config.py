@@ -217,6 +217,14 @@ class Settings(BaseSettings):
             raise ValueError(f"KB setting value must be positive, got {v}")
         return v
 
+    @field_validator("x_api_base_url", "x_oauth_token_url")
+    @classmethod
+    def validate_https_url(cls, v: str) -> str:
+        """Validate OAuth/API URLs use HTTPS for security."""
+        if not v.startswith("https://"):
+            raise ValueError(f"URL must use HTTPS for security, got: {v}")
+        return v
+
 
 def get_settings() -> Settings:
     """Get application settings singleton.

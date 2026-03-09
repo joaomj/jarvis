@@ -52,10 +52,18 @@ class BotResearchMixin:
 
         action = parts[1]
         token = parts[2]
-        pending = self._research_pending.pop(token, None)
+        pending = self._research_pending.get(token)
         if pending is None:
             await callback.answer("This request expired")
             return True
+
+        # Authorization check: ensure the user who clicked matches the pending request
+        if pending.user_id != user_id:
+            await callback.answer("Not authorized for this action")
+            return True
+
+        # Remove the pending entry after authorization check passes
+        self._research_pending.pop(token, None)
 
         if action == "cancel":
             await callback.answer("Deep research cancelled")

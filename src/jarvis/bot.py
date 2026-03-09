@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 from telegram.ext import Application
 
 from jarvis.bot_attachments import BotAttachmentsMixin
@@ -94,7 +96,8 @@ class JarvisBot(
             max_backoff_level=self.settings.polling_max_backoff_level,
             max_backoff_seconds=self.settings.polling_max_backoff_seconds,
         )
-        self._run_kb_startup_scan()
+        # Run KB startup scan in background to avoid blocking initialization
+        self._kb_scan_task = asyncio.create_task(self._run_kb_startup_scan_async())
         logger.info("bot_application_initialized")
 
     async def shutdown(self) -> None:
