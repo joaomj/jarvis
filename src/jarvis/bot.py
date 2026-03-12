@@ -18,11 +18,14 @@ from jarvis.config import Settings
 from jarvis.database import Database
 from jarvis.event_processor import EventProcessor
 from jarvis.formatter import ResponseFormatter
+from jarvis.kb_indexer import KBIndexer
 from jarvis.logging_config import get_logger
+from jarvis.memory_store import MemoryStore
 from jarvis.model_selector import ModelSelector
 from jarvis.models_manager import ModelsManager
 from jarvis.opencode_client import OpenCodeClient
 from jarvis.polling_engine import PollingEngine
+from jarvis.qmd_client import QMDClient
 from jarvis.session_manager import SessionManager
 
 logger = get_logger(__name__)
@@ -48,13 +51,14 @@ class JarvisBot(
         self.model_selector: ModelSelector | None = None
         self.app: Application | None = None
         self.polling: PollingEngine | None = None
+        self.qmd_client: QMDClient | None = None
         self.db = Database(
             settings.database_path,
             message_content_max_length=settings.db_message_content_max_length,
             response_cleanup_days=settings.db_response_cleanup_days,
         )
-        self.memory_store = None
-        self.kb_indexer = None
+        self.memory_store: MemoryStore | None = None
+        self.kb_indexer: KBIndexer | None = None
         self._initialize_memory_state()
         self._initialize_research_state()
         self._initialize_kb_state()
@@ -66,7 +70,19 @@ class JarvisBot(
             "bot_initialized",
             user_id=settings.telegram_user_id,
             polling_interval=settings.telegram_polling_interval,
+            qmd_enabled=settings.qmd_enabled,
         )
+        if settings.qmd_enabled:
+            self.qmd_client = QMDClient(
+                base_url=settings.qmd_url,
+                timeout=settings.qmd_timeout,
+            )
+            logger.info(
+                "qmd_status",
+                enabled=settings.qmd_enabled,
+                server_url=settings.qmd_url,
+                healthy=settings.qmd_enabled,
+            )
 
     async def initialize(self) -> None:
         """Initialize bot and OpenCode client."""
@@ -98,7 +114,6 @@ class JarvisBot(
             max_backoff_level=self.settings.polling_max_backoff_level,
             max_backoff_seconds=self.settings.polling_max_backoff_seconds,
         )
-        # Run KB startup scan in background to avoid blocking initialization
         self._kb_scan_task = asyncio.create_task(self._run_kb_startup_scan_async())
         logger.info("bot_application_initialized")
 
@@ -107,6 +122,8 @@ class JarvisBot(
         await self.events.stop()
         if self.opencode:
             await self.opencode.close()
+        if self.qmd_client:
+            await self.qmd_client.close()
         logger.info("bot_shutdown_complete")
 
     def _is_authorized(self, user_id: int) -> bool:

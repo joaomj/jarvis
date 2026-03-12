@@ -31,6 +31,13 @@ OPENCODE_PASS_THROUGH = {
     "unshare",
     "connect",
     "save",
+}
+
+# Commands intercepted and handled by Jarvis
+JARVIS_INTERCEPT_COMMANDS = {
+    "models",
+    "new",
+    "sessions",
     "recall",
 }
 
@@ -86,8 +93,8 @@ async def route_command(
         result = await _handle_bridge_native(command, arguments, user_id, bot)
         return (True, result)
 
-    # Check OpenCode intercept commands
-    if command in ("models", "new", "sessions"):
+    # Check Jarvis intercept commands (including recall)
+    if command in JARVIS_INTERCEPT_COMMANDS:
         result = await _handle_intercept(command, arguments, user_id, bot)
         return (True, result)
 
