@@ -1,10 +1,9 @@
 """Command router for Jarvis Bot.
 
 Maps Telegram commands to appropriate handlers:
-- Pass through to OpenCode API (/compact, /undo, etc.)
-- Intercept and handle locally (/models, /new, /sessions)
-- Block (not available in Telegram: /exit, /editor)
-- Bridge-native (/switch, /agent, /model)
+- Pass through to OpenCode API (/compact, /undo, /models, /new, /sessions, etc.)
+- Block (not available in Telegram: /exit, /editor, /themes)
+- Bridge-native (/switch, /agent)
 """
 
 from typing import TYPE_CHECKING
@@ -32,6 +31,9 @@ OPENCODE_PASS_THROUGH = {
     "connect",
     "save",
     "recall",
+    "models",
+    "new",
+    "sessions",
 }
 
 # Commands blocked in Telegram (require TUI)
@@ -44,11 +46,10 @@ BLOCKED_COMMANDS = {
     "theme": "Theme switching requires the TUI interface",
 }
 
-# Bridge-native commands
+# Bridge-native commands (handled by Jarvis, not OpenCode)
 BRIDGE_NATIVE = {
     "switch",
     "agent",
-    "model",
 }
 
 
@@ -86,50 +87,15 @@ async def route_command(
         result = await _handle_bridge_native(command, arguments, user_id, bot)
         return (True, result)
 
-    # Check OpenCode intercept commands
-    if command in ("models", "new", "sessions"):
-        result = await _handle_intercept(command, arguments, user_id, bot)
-        return (True, result)
-
     # Everything else passes through to OpenCode
     return (False, [])
-
-
-async def _handle_intercept(cmd: str, args: str, user_id: int, bot: "JarvisBot") -> str:
-    """Handle commands that need bridge-side processing.
-
-    Args:
-        cmd: Command name (models, new, sessions)
-        args: Command arguments
-        user_id: Telegram user ID
-        bot: JarvisBot instance
-
-    Returns:
-        Response message for user
-    """
-    from jarvis.handlers.commands import handle_intercept_command  # noqa: PLC0415
-
-    return await handle_intercept_command(cmd, args, user_id, bot)
-
-
-def _handle_blocked(cmd: str) -> str:
-    """Respond with blocked command message.
-
-    Args:
-        cmd: Blocked command name
-
-    Returns:
-        Error message for user
-    """
-    reason = BLOCKED_COMMANDS.get(cmd, "Not available in Telegram")
-    return f"⚠️ Command /{cmd} is blocked.\n\n{reason}\n\nUse OpenCode TUI directly."
 
 
 async def _handle_bridge_native(cmd: str, args: str, user_id: int, bot: "JarvisBot") -> str:
     """Handle bridge-native commands.
 
     Args:
-        cmd: Command name (switch, agent, model)
+        cmd: Command name (switch, agent)
         args: Command arguments
         user_id: Telegram user ID
         bot: JarvisBot instance
