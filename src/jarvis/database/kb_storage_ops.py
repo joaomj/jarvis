@@ -146,6 +146,63 @@ class KBStorageOperations(DatabaseCore):
             logger.warning("get_document_by_path_failed", path=path, error=str(error))
             return None
 
+    def get_chunks_for_document(self, document_id: int) -> list[dict[str, object]]:
+        """Return all chunks for one document with metadata."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                rows = conn.execute(
+                    """SELECT
+                           kb_chunks.id AS chunk_id,
+                           kb_chunks.document_id,
+                           kb_chunks.chunk_index,
+                           kb_chunks.heading,
+                           kb_chunks.line_start,
+                           kb_chunks.line_end,
+                           kb_chunks.chunk_text,
+                           kb_documents.title,
+                           kb_documents.url_original,
+                           kb_documents.markdown_path
+                       FROM kb_chunks
+                       JOIN kb_documents ON kb_documents.id = kb_chunks.document_id
+                       WHERE kb_chunks.document_id = ?
+                       ORDER BY kb_chunks.chunk_index""",
+                    (document_id,),
+                ).fetchall()
+                return [dict(row) for row in rows]
+        except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as error:
+            logger.warning(
+                "get_chunks_for_document_failed", document_id=document_id, error=str(error)
+            )
+            return []
+
+    def get_chunk_by_id(self, chunk_id: int) -> dict[str, object] | None:
+        """Return one chunk joined with document metadata."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.row_factory = sqlite3.Row
+                row = conn.execute(
+                    """SELECT
+                           kb_chunks.id AS chunk_id,
+                           kb_chunks.document_id,
+                           kb_chunks.chunk_index,
+                           kb_chunks.heading,
+                           kb_chunks.line_start,
+                           kb_chunks.line_end,
+                           kb_chunks.chunk_text,
+                           kb_documents.title,
+                           kb_documents.url_original,
+                           kb_documents.markdown_path
+                       FROM kb_chunks
+                       JOIN kb_documents ON kb_documents.id = kb_chunks.document_id
+                       WHERE kb_chunks.id = ?""",
+                    (chunk_id,),
+                ).fetchone()
+                return dict(row) if row else None
+        except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as error:
+            logger.warning("get_chunk_by_id_failed", chunk_id=chunk_id, error=str(error))
+            return None
+
     def search_chunks_fts(self, query: str, limit: int) -> list[dict[str, object]]:
         """Run lexical FTS search and return joined chunk/document rows."""
         try:

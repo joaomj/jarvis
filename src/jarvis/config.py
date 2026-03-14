@@ -11,8 +11,6 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 MIN_POLLING_INTERVAL = 0.5
 MIN_POLLING_TIMEOUT = 10
 MAX_POLLING_TIMEOUT = 120
-QMD_MAX_TIMEOUT_SECONDS = 300
-QMD_MAX_SEARCH_LIMIT = 100
 
 
 class Settings(BaseSettings):
@@ -151,27 +149,6 @@ class Settings(BaseSettings):
         description="Root directory for local-first vault artifacts",
     )
 
-    qmd_url: str = Field(
-        default="http://localhost:8181",
-        description="QMD MCP HTTP server URL",
-    )
-    qmd_enabled: bool = Field(
-        default=False,
-        description="Enable QMD hybrid search for /recall command",
-    )
-    qmd_timeout: float = Field(
-        default=30.0,
-        description="QMD HTTP request timeout in seconds",
-    )
-    qmd_search_limit: int = Field(
-        default=5,
-        description="Maximum number of QMD search results",
-    )
-    qmd_min_score: float = Field(
-        default=0.2,
-        description="Minimum QMD score threshold (0.0-1.0)",
-    )
-
     @field_validator("log_level")
     @classmethod
     def validate_log_level(cls, v: str) -> str:
@@ -231,38 +208,6 @@ class Settings(BaseSettings):
     def expand_vault_root(cls, v: str) -> str:
         """Expand user home in vault root path."""
         return str(Path(v).expanduser())
-
-    @field_validator("qmd_url")
-    @classmethod
-    def validate_qmd_url(cls, v: str) -> str:
-        """Validate QMD URL format."""
-        if not v.startswith(("http://", "https://")):
-            raise ValueError(f"QMD URL must start with http:// or https://, got: {v}")
-        return v.rstrip("/")
-
-    @field_validator("qmd_timeout")
-    @classmethod
-    def validate_qmd_timeout(cls, v: float) -> float:
-        """Validate QMD timeout is reasonable."""
-        if v <= 0 or v > QMD_MAX_TIMEOUT_SECONDS:
-            raise ValueError(f"QMD timeout must be 0-{QMD_MAX_TIMEOUT_SECONDS}s, got {v}")
-        return v
-
-    @field_validator("qmd_search_limit")
-    @classmethod
-    def validate_qmd_search_limit(cls, v: int) -> int:
-        """Validate QMD search limit is reasonable."""
-        if v <= 0 or v > QMD_MAX_SEARCH_LIMIT:
-            raise ValueError(f"QMD search limit must be 1-{QMD_MAX_SEARCH_LIMIT}, got {v}")
-        return v
-
-    @field_validator("qmd_min_score")
-    @classmethod
-    def validate_qmd_min_score(cls, v: float) -> float:
-        """Validate QMD min score is in valid range."""
-        if v < 0 or v > 1:
-            raise ValueError(f"QMD min score must be 0.0-1.0, got {v}")
-        return v
 
     @field_validator("kb_max_chunks_per_query", "kb_rescan_stale_seconds", "kb_chunk_size_chars")
     @classmethod

@@ -26,7 +26,7 @@ async def handle_intercept_command(cmd: str, args: str, user_id: int, bot: "Jarv
     Returns:
         Response message for user
     """
-    from jarvis.handlers.qmd import handle_recall  # noqa: PLC0415
+    from jarvis.handlers.context import handle_recall  # noqa: PLC0415
 
     handlers = {
         "models": _handle_models,
