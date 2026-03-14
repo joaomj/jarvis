@@ -401,9 +401,9 @@ User Command (Telegram) - "/recall what did I save about machine learning?"
 │  OpenCode Server │             │   Vault Search     │
 │                  │             │    (via /recall)   │
 │ - LLM inference  │             │                    │
-│ - File ops      │             │ - QMD hybrid search│
-│ - Git ops      │             │ - BM25 + vector    │
-│ - Bash cmds    │             │ - LLM reranking   │
+│ - File ops      │             │ - Native hybrid    │
+│ - Git ops      │             │   retrieval        │
+│ - Bash cmds    │             │ - FTS5 + sqlite-vec│
 └──────────────────┘             └────────┬───────────┘
        │                                  │
        │ X Bookmarks                      ▼
@@ -630,49 +630,28 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 - `idx_bookmark_folders_tweet_id` on `x_bookmark_folder_assignments(tweet_id)` - Fast export by tweet
 - `idx_bookmark_folders_folder_id` on `x_bookmark_folder_assignments(folder_id)` - Fast export by folder
 
-### QMD Integration
+### Native Context Retrieval
 
-**HOW**: QMD (Query Markup Documents) provides hybrid search via MCP HTTP server
+**HOW**: Jarvis performs hybrid retrieval locally with SQLite FTS5 and sqlite-vec.
 
 **WHY**:
-- Hybrid search (BM25 + vector + LLM reranking) provides better relevance than BM25 alone
-- Query expansion with fine-tuned model improves recall
-- MCP protocol enables clean integration without language coupling
-- Runs as local daemon, models stay loaded in memory
+- Single-user assistant does not need an external retrieval daemon.
+- Keeps retrieval path Python-first and local-first.
+- Enables semantic and lexical matching in one pipeline.
 
 **WHAT**:
-- QMD MCP HTTP server on `http://localhost:8181`
-- Searches vault content (bookmarks, saved URLs, attachments, memories)
-- Returns ranked results with relevance scores and snippets
-- `/recall` command uses QMD search endpoint
+- Semantic embeddings generated with BGE-M3 (`sentence-transformers`).
+- Chunk-level KB embeddings indexed into sqlite-vec.
+- Memory embeddings indexed on write.
+- `/recall` fuses lexical and semantic ranks with RRF.
+- One-hop context links improve related result recall.
 
 **WHERE**:
-- Client: `src/jarvis/qmd_client.py`
-- Command handler: `src/jarvis/handlers/commands.py::_handle_recall()`
-- Config: `QMD_URL`, `QMD_ENABLED`, `QMD_SEARCH_LIMIT`, `QMD_MIN_SCORE`
-
-**Setup**:
-```bash
-# Install QMD
-npm install -g @tobilu/qmd
-
-# Create collection for vault
-qmd collection add ~/projects/jarvis/vault --name jarvis
-
-# Generate embeddings
-qmd embed
-
-# Start MCP server (daemon mode)
-qmd mcp --http --daemon
-```
-
-**Configuration**:
-```env
-QMD_ENABLED=true
-QMD_URL=http://localhost:8181
-QMD_SEARCH_LIMIT=5
-QMD_MIN_SCORE=0.2
-```
+- Context search/index: `src/jarvis/context_store.py`
+- Embeddings: `src/jarvis/embeddings.py`
+- Recall handler: `src/jarvis/handlers/context.py`
+- Memory indexing hook: `src/jarvis/memory_store.py`
+- KB chunk indexing hook: `src/jarvis/kb_indexer.py`
 
 ### Error Handling Strategy
 
