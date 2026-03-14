@@ -150,7 +150,7 @@ class SessionManager:
         return self._db.get_session_history(user_id, limit)
 
     def is_session_owned_by_user(self, session_id: str, user_id: int) -> bool:
-        """Check if a session ID is owned by the given user.
+        """Check if a session ID belongs to the given user.
 
         Args:
             session_id: OpenCode session ID to check.
@@ -160,3 +160,14 @@ class SessionManager:
             True if the session belongs to the user, False otherwise.
         """
         return self._db.is_session_owned_by_user(session_id, user_id)
+
+    def get_last_used_model(self, user_id: int) -> str | None:
+        """Get the last used model for a user from session history.
+
+        Args:
+            user_id: Telegram user ID.
+
+        Returns:
+            Last used model ID (e.g., "openai/gpt-5.2") or None if no history.
+        """
+        return self._db.get_last_used_model(user_id)
