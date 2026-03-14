@@ -87,11 +87,13 @@ class BotBookmarksMixin:
             await self._handle_error(update, "OpenCode not initialized", user_id, "health_probe")
             return
 
-        model = (
-            self.models.get_models()[0] if is_new_session and self.models.get_count() > 0 else None
-        )
-        if model:
-            logger.info("using_default_model_for_new_session", model=model)
+        model = None
+        if is_new_session and self.session_manager:
+            model = self.session_manager.get_last_used_model(user_id)
+            if model:
+                logger.info("using_last_session_model", model=model)
+            else:
+                logger.info("no_previous_model_found_using_default")
 
         try:
             parts, info = await self.opencode.send_message(
@@ -147,22 +149,4 @@ class BotBookmarksMixin:
                 f"Health probe failed: {str(error)[:100]}",
                 user_id,
                 "health_probe",
-            )
-
-    async def _start_model_selection(self, update: Update, user_id: int) -> None:
-        """Start model selection flow."""
-        msg = update.effective_message
-        if msg is None or self.model_selector is None:
-            return
-
-        response = await self.model_selector.start_selection(user_id)
-        if response:
-            prompt_text = msg.text or "[model selection]"
-            await self._send_feedback_message(
-                update,
-                user_id,
-                response,
-                source="model_select",
-                prompt_text=prompt_text,
-                parse_mode="HTML",
             )

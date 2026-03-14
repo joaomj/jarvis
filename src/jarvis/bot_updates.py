@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 class BotUpdateMixin:
     """Methods that process inbound Telegram updates."""
 
-    async def _process_input(  # noqa: PLR0911, PLR0912
+    async def _process_input(  # noqa: PLR0911
         self,
         update: Update,
         user_id: int,
@@ -29,25 +29,10 @@ class BotUpdateMixin:
         is_private = self._is_private_intent(text)
         processed_text = self._strip_private_marker(text) if is_private else text
 
-        # Suggest /save command for URL-only messages
         if is_url_only(processed_text) and update.effective_message:
             await update.effective_message.reply_text(
                 f"💡 To save this URL, use `/save {processed_text}`"
             )
-            return None
-
-        if self.model_selector and self.model_selector.is_awaiting_selection(user_id):
-            msg = update.effective_message
-            if msg:
-                response = await self.model_selector.handle_selection(user_id, processed_text)
-                await self._send_feedback_message(
-                    update,
-                    user_id,
-                    response,
-                    source="model_select",
-                    prompt_text=f"[model selection] {processed_text}",
-                    parse_mode="HTML",
-                )
             return None
 
         if await self.events.handle_interaction_input(update, user_id, processed_text):
@@ -62,17 +47,11 @@ class BotUpdateMixin:
         if not self.opencode:
             raise RuntimeError("OpenCode not initialized")
 
-        # Handle both Telegram /commands and !commands
         if processed_text.startswith("/") or processed_text.startswith("!"):
             parts = processed_text[1:].split(maxsplit=1)
             command = parts[0]
             arguments = parts[1] if len(parts) > 1 else ""
 
-            if command in {"models", "favmodels"}:
-                await self._start_model_selection(update, user_id)
-                return None
-
-            # Route bridge commands for both / and ! prefixes
             handled_locally, result = await route_command(command, arguments, user_id, self)
             if handled_locally:
                 await self._send_feedback_message(
@@ -85,7 +64,6 @@ class BotUpdateMixin:
                 )
                 return None
 
-            # If not handled locally, send to OpenCode for both / and ! prefixes
             response_parts, info = await self.opencode.send_command(session_id, command, arguments)
         else:
             if self.events.has_pending_prompt(session_id):
@@ -98,11 +76,7 @@ class BotUpdateMixin:
                 )
                 return None
 
-            selected_model = None
-            if self.model_selector:
-                selected_model = self.model_selector.get_model_for_user(user_id)
-
-            await self.opencode.prompt_async(session_id, processed_text, model=selected_model)
+            await self.opencode.prompt_async(session_id, processed_text)
             self.events.register_pending_prompt(
                 session_id=session_id,
                 user_id=user_id,
