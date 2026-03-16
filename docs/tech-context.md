@@ -733,7 +733,6 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 |----------|-------------|----------|
 | `X_CLIENT_ID` | X OAuth 2.0 Client ID from Developer Console | `None` (bookmarks disabled) |
 | `X_CLIENT_SECRET` | X OAuth 2.0 Client Secret from Developer Console | `None` (bookmarks disabled) |
-| `X_BEARER_TOKEN` | X API Bearer token (DEPRECATED, use OAuth 2.0) | `None` |
 | `TELEGRAM_POLLING_INTERVAL` | Seconds between polling requests | `2.0` |
 | `TELEGRAM_POLLING_TIMEOUT` | Timeout for getUpdates in seconds | `30` |
 | `LOG_LEVEL` | Python logging level | `INFO` |

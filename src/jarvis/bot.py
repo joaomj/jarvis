@@ -12,7 +12,6 @@ from jarvis.bot_feedback import BotFeedbackMixin
 from jarvis.bot_kb import BotKBMixin
 from jarvis.bot_memory import BotMemoryMixin
 from jarvis.bot_opencode import BotOpenCodeMixin
-from jarvis.bot_research import BotResearchMixin
 from jarvis.bot_updates import BotUpdateMixin
 from jarvis.config import Settings
 from jarvis.database import Database
@@ -34,7 +33,6 @@ class JarvisBot(
     BotBookmarksMixin,
     BotAttachmentsMixin,
     BotMemoryMixin,
-    BotResearchMixin,
     BotFeedbackMixin,
     BotOpenCodeMixin,
 ):
@@ -56,7 +54,6 @@ class JarvisBot(
         self.memory_store = None
         self.kb_indexer = None
         self._initialize_memory_state()
-        self._initialize_research_state()
         self._initialize_kb_state()
         self.events = EventProcessor(self)
         self.models = ModelsManager(settings.favorite_models_path)

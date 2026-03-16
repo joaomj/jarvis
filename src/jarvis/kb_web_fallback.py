@@ -42,7 +42,7 @@ async def build_web_fallback_answer(
         session_id,
         discovery_prompt,
         model=selected_model,
-        agent="dr-websearch-highrep",
+        agent="web-search",
     )
     source_text = "\n".join(
         part.get("text", "") for part in source_parts if part.get("type") == "text"
@@ -63,7 +63,7 @@ async def build_web_fallback_answer(
         session_id,
         synthesis_prompt,
         model=selected_model,
-        agent="dr-editor-integrator",
+        agent="synthesizer",
     )
     answer_text = "\n".join(
         part.get("text", "") for part in answer_parts if part.get("type") == "text"

@@ -11,8 +11,7 @@ This document captures Jarvis' current state, the gaps versus the main objective
 - The memory vault lives in `vault/`.
 - Ignore Google Drive integration for now.
 - No special "chat only with this source" mode; Jarvis detects source-grounded questions and prioritizes retrieved sources.
-- Source priority order (deep research and normal conversations): attached files > local files (`vault/`) > high reputation web sources > general web sources.
-- Deep research (5-20 page reports) must be explicit/confirmed to control cost/latency.
+- Source priority order: attached files > local files (`vault/`) > high reputation web sources > general web sources.
 - When a question benefits from web sources, Jarvis defaults to a "Sourced Answer" that includes high-reputation web sources (no extra confirmation).
 - **Commands:** Jarvis uses OpenCode custom commands instead of building NLU layer in Jarvis.
 - **PDF extraction:** LLM-based via OpenCode models, avoid traditional PDF parsers.
@@ -54,10 +53,7 @@ Jarvis is a local Telegram bot that bridges mobile chat to OpenCode Server and i
 - Attachment ingestion
   - Telegram document ingestion for text attachments.
   - Attachments persisted under `vault/sources/attachments/` and indexed.
-- Deep research orchestration
-  - Staged deep research with local artifact workspace under `vault/research/<job-id>/`.
-  - dr-gate classification + explicit confirmation flow.
-  - Callback-driven Telegram UX for confirm/cancel.
+
 
 **Key limitation:** PDF extraction not yet supported (high priority).
 
@@ -137,7 +133,6 @@ Jarvis leverages OpenCode's built-in command system for Jarvis-specific features
 .opencode/commands/
 ├── ingest-pdf.md      # PDF extraction via LLM vision
 ├── recall.md          # Search vault memories
-├── research.md        # Deep research with citations
 ├── save.md            # Save URL to vault
 ├── remember.md        # Store curated memory
 ├── forget.md          # Remove curated memory
@@ -151,62 +146,6 @@ See [OpenCode Custom Commands Documentation](https://opencode.ai/docs/commands/)
 Users discover Jarvis commands via:
 - `/help-jarvis` - Lists all Jarvis-specific commands
 - OpenCode's built-in command help system
-
-## How Deep Research Works (Jarvis + OpenCode)
-
-Deep research is implemented as: Jarvis is the deterministic orchestrator and archivist; OpenCode is the provider-agnostic LLM + tools runtime.
-
-### Responsibilities
-
-Jarvis:
-
-- Decides whether to run deep research (explicit trigger or confirmation).
-- Enforces source priority (attachments > `vault/` > high-rep web > general web).
-- Creates a research job workspace under `vault/` and writes all artifacts there.
-- Splits work into stages to manage context windows.
-- Verifies output constraints (citations present, references section generated from used sources).
-
-OpenCode:
-
-- Executes LLM calls against whichever provider/model is configured.
-- Runs tools (web search with citations, scraping/capture, etc.).
-- Uses agents/subagents to parallelize work while keeping each step's context bounded.
-- Streams progress/events back to Jarvis.
-
-Telegram:
-
-- UI transport only: message + attachments in, progress + report out.
-
-### Effort Ladder (Cost Control)
-
-- Quick Answer (default): attachments + local retrieval only; no web.
-- Sourced Answer: attachments + local + high-rep web sources; citations required.
-- Deep Research Report: explicit/confirmed; 5-20 pages; saves a job workspace and an evidence trail under `vault/`.
-
-Deep Research triggers (natural language examples): "do a deep research", "write a literature review", "write a 10-page report", "academic-style report with citations".
-
-### Research Job Workspace (Artifacts)
-
-Each deep research run creates a folder under `vault/` (a durable artifact, not just chat text):
-
-- `question.md` (task + constraints)
-- `plan.md` (outline + subquestions)
-- `sources/` (captured attachments and captured web pages)
-- `notes/` (per-source notes/extractions)
-- `evidence.json` (the evidence ledger)
-- `report.md` (final report)
-
-### Pipeline (Context-Window Safe)
-
-1) Plan: outline + research questions.
-2) Collect: ingest attachments and pull relevant items from `vault/`.
-3) Expand: if needed, search high-rep web sources; capture/snapshot sources locally.
-4) Extract: convert sources into small evidence units (snippets/quotes + anchors) written to `evidence.json`.
-5) Draft: write each section using only the evidence units relevant to that section.
-6) Integrate: consistency pass, missing-citation pass, and references generation.
-7) Deliver: send `report.md` via Telegram; keep the full job workspace in `vault/`.
-
-This design avoids putting all sources into a single context window. The long-horizon state lives in `vault/`, not in the model context.
 
 ## Retrieval Strategy (BM25-First)
 
@@ -272,14 +211,13 @@ LLM-based extraction (via OpenCode models) provides:
 
 ## Next Steps (Incremental Plan With Acceptance Criteria)
 
-### Phase 1-6: [COMPLETE] ✅
+### Phase 1-5: [COMPLETE] ✅
 
 - Phase 1: Establish vault/ as source of truth
 - Phase 2: Private mode (do not record)
 - Phase 3: Curated memory (explicit remember/forget)
 - Phase 4: Source-grounded answers by default when asked
 - Phase 5: Attached files as first-class sources
-- Phase 6: Deep research reports
 
 ### Phase 7: Improve Retrieval Quality
 
@@ -349,7 +287,6 @@ Commands created:
 - ✅ `/save` - Save URL to vault (implemented with Firecrawl workflow)
 - ✅ `/recall` - Search vault (searches all content: bookmarks, URLs, attachments, memories)
 - ⏳ `/ingest-pdf` - PDF extraction (Phase 8.1)
-- ⏳ `/research` - Deep research with citations (Phase 6)
 - ⏳ `/remember` - Store curated memory (future)
 - ⏳ `/forget` - Remove curated memory (future)
 - ⏳ `/help-jarvis` - List Jarvis commands (using native `/help` instead)
@@ -446,12 +383,6 @@ Documentation for three approaches:
 - "Agent decides to retrieve" is unreliable: we should avoid architectures that depend on the model correctly invoking a skill. Prefer deterministic routing + retrieval + prompt injection. ( *suggestion: we can still use skills, but clear rules/decision trees to AGENTS.md telling the agent when to invoke a skill; skills are a very convenient way to offload context from the agent context window, alowwing for easy 'lazy on-demand retrieval'.* )
 - Over-indexing early is a trap: embeddings/reranking are useful, but FTS + good metadata often wins on simplicity and debuggability.
 
-Additional deep research tradeoffs:
-
-- Long reports must be staged to avoid context-window degradation; this increases orchestration complexity but improves stability and reduces cost.
-- Web search improves coverage but reduces privacy; the source-priority policy minimizes unnecessary web use.
-- External deep research engines can accelerate time-to-value but add operational weight and can conflict with the vault-first architecture.
-
 ## External References
 
 - BM25 (Python): https://pypi.org/project/BM25/
@@ -468,6 +399,4 @@ Additional deep research tradeoffs:
 Optional/inspiration:
 
 - GPT-Researcher: https://github.com/assafelovic/gpt-researcher
-- ThinkDepth.ai Deep Research: https://github.com/thinkdepthai/Deep_Research
 - Onyx: https://github.com/onyx-dot-app/onyx
-- DeepResearch Bench leaderboard: https://huggingface.co/spaces/muset-ai/DeepResearch-Bench-Leaderboard

@@ -66,11 +66,7 @@ class Settings(BaseSettings):
         description="Environment name (development, production)",
     )
 
-    # X (Twitter) API settings
-    x_bearer_token: str | None = Field(
-        default=None,
-        description="X API Bearer token (read-only, from developer.twitter.com) - DEPRECATED, use OAuth 2.0",
-    )
+    # X (Twitter) API settings (OAuth 2.0 only)
     x_client_id: str | None = Field(
         default=None,
         description="X OAuth 2.0 Client ID from Developer Console",
@@ -80,7 +76,7 @@ class Settings(BaseSettings):
         description="X OAuth 2.0 Client Secret from Developer Console",
     )
     x_api_base_url: str = Field(
-        default="https://api.twitter.com/2",
+        default="https://api.x.com/2",
         description="X API base URL",
     )
     x_oauth_token_url: str = Field(

@@ -218,6 +218,7 @@ class DatabaseCore:
             conn.execute("PRAGMA foreign_keys = ON")
             conn.executescript(SCHEMA)
             self._migrate_sync_status_columns(conn)
+            self._migrate_bookmark_content_columns(conn)
 
     def _migrate_sync_status_columns(self, conn: sqlite3.Connection) -> None:
         """Backfill newer x_sync_status columns for existing databases."""
@@ -229,6 +230,25 @@ class DatabaseCore:
 
         if "last_folders_sync_date" not in column_names:
             conn.execute("ALTER TABLE x_sync_status ADD COLUMN last_folders_sync_date TEXT")
+
+    def _migrate_bookmark_content_columns(self, conn: sqlite3.Connection) -> None:
+        """Add normalized content columns to x_bookmarks for Phase 3."""
+        cursor = conn.execute("PRAGMA table_info(x_bookmarks)")
+        column_names = {row[1] for row in cursor.fetchall()}
+
+        new_columns = [
+            ("content_kind", "TEXT"),
+            ("content_title", "TEXT"),
+            ("content_preview", "TEXT"),
+            ("content_text", "TEXT"),
+            ("source_unwound_url", "TEXT"),
+            ("artifact_path", "TEXT"),
+            ("content_hash", "TEXT"),
+        ]
+
+        for column_name, column_type in new_columns:
+            if column_name not in column_names:
+                conn.execute(f"ALTER TABLE x_bookmarks ADD COLUMN {column_name} {column_type}")
 
     def _execute(
         self,

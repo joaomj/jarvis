@@ -28,10 +28,12 @@ class BotKBMixin:
         content_dir = Path(getattr(self.settings, "kb_content_dir", str(default_content_dir)))
         content_dir.mkdir(parents=True, exist_ok=True)
         chunk_size_chars = int(getattr(self.settings, "kb_chunk_size_chars", 1800))
+        vault_root = getattr(self.settings, "vault_root", "vault")
         self.kb_indexer = KBIndexer(
             db=self.db,
             content_dir=str(content_dir),
             chunk_size_chars=chunk_size_chars,
+            vault_root=vault_root,
         )
 
     def _run_kb_startup_scan(self) -> None:

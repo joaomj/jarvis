@@ -53,9 +53,6 @@ class BotUpdateMixin:
         if await self.events.handle_interaction_input(update, user_id, processed_text):
             return None
 
-        if await self._maybe_handle_deep_research(update, user_id, session_id, processed_text):
-            return None
-
         if await self._handle_memory_intent(update, user_id, session_id, processed_text):
             return None
 
@@ -147,8 +144,6 @@ class BotUpdateMixin:
         """Process single update from polling."""
         if update.callback_query:
             if await self.events.handle_callback(update):
-                return
-            if await self._handle_research_callback(update):
                 return
             await self._handle_feedback_callback(update)
             return

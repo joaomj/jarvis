@@ -155,7 +155,7 @@ class BotMemoryMixin:
             session_id,
             prompt,
             model=selected_model,
-            agent="dr-gate",
+            agent="classifier",
         )
         combined = "\n".join(part.get("text", "") for part in parts if part.get("type") == "text")
         parsed = _extract_json_payload(combined)
