@@ -219,6 +219,95 @@ First Message of Day
 - **WHAT**: Daily incremental is usually 0-1 API calls; weekly full reconcile fetches all pages
 - **WHERE**: Logged as "sync_completed" with new_bookmarks, total_bookmarks
 
+### Data Flow: Bookmark Artifact Generation
+
+```
+During Sync (for each bookmark)
+    ↓
+[Parse Canonical Content] - bookmarks/parser.py
+    ├─ article.plain_text (highest priority)
+    ├─ note_tweet.text (second priority)
+    └─ text (fallback)
+    ↓
+[Determine Content Kind] - Based on available fields
+    ├─ article → content_kind="article"
+    ├─ note_tweet → content_kind="note_tweet"
+    ├─ text only → content_kind="post"
+    └─ link/media only → content_kind="link_only"/"media_only"
+    ↓
+[Save to Database] - x_bookmarks with normalized fields
+    ├─ content_kind, content_title, content_preview
+    ├─ content_text (canonical)
+    └─ source_unwound_url (resolved link)
+    ↓
+[Generate Markdown Artifact] - vault/sources/x-bookmarks/{tweet_id}.md
+    ├─ YAML frontmatter: source_type, tweet_id, content_kind
+    ├─ Author metadata: username, name
+    ├─ Engagement metrics
+    └─ Full canonical content body
+    ↓
+[Index into KB] - kb_indexer.py scans artifacts
+    ├─ Chunk markdown content
+    ├─ Update kb_documents table
+    └─ Populate FTS index for search
+```
+
+**Metrics:**
+- **HOW**: Count artifacts created, track content kinds
+- **WHY**: Ensure bookmarks are searchable alongside other content
+- **WHAT**: Typical: 100% of bookmarks have artifacts after sync
+- **WHERE**: Logged as "bookmark_artifact_created" with tweet_id, content_kind
+
+### Unified Context System Architecture
+
+Jarvis uses a unified context system for all saved knowledge sources. Bookmarks, KB documents, memories, and attachments share the same retrieval architecture.
+
+**Source Types:**
+- `bookmark` - X bookmark artifacts from `vault/sources/x-bookmarks/`
+- `kb_document` - Saved web content from `vault/sources/web/` or `.jarvis/url-saves/`
+- `memory` - Curated memories from `vault/memories/`
+- `attachment` - Document attachments from `vault/sources/attachments/`
+
+**Canonical Model (all sources):**
+- `source_type` - One of the types above
+- `source_id` - Stable identifier per source
+- `title` - Optional display title
+- `canonical_text` - Full normalized text body for indexing
+- `metadata` - Source-specific attributes (author, URLs, timestamps)
+- `artifact_path` - Local markdown path when applicable
+
+**Retrieval Pipeline:**
+```
+Query
+    ↓
+[Lexical Search] - FTS5 on kb_chunks_fts
+    ├─ Tokenize query → safe FTS query
+    ├─ Search chunks table
+    └─ Return candidates with BM25 ranking
+    ↓
+[Rank Results] - Relevance scoring + source priority
+    ├─ attachments > memories > bookmarks > web sources
+    ├─ Per-document cap for diversity
+    └─ Sort by composite score
+    ↓
+[Format Response] - Citations with source attribution
+    ├─ Source type indicator
+    ├─ Relevant excerpts
+    └─ Links to original sources
+```
+
+**Source Priority Order:**
+1. Attached files (highest priority - user explicitly shared)
+2. Local memories (curated by user)
+3. X bookmarks (user's saved content)
+4. Web sources (saved URLs)
+
+**Tradeoffs:**
+- **Current**: BM25 lexical search only, fast and debuggable
+- **Future (Phase 5)**: Hybrid lexical + semantic search with embeddings
+- **Storage**: Each source stored as markdown artifact + SQLite index
+- **Rebuild**: Index can be reconstructed entirely from `vault/` directory
+
 ### Data Flow: Vault Query (via /recall)
 
 ```
@@ -591,7 +680,7 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 - `id` (INTEGER PRIMARY KEY AUTOINCREMENT) - Internal row ID
 - `tweet_id` (TEXT UNIQUE NOT NULL) - Tweet unique identifier
 - `author_username`, `author_name`, `author_verified` - Author info
-- `text` (TEXT NOT NULL) - Tweet content
+- `text` (TEXT NOT NULL) - Original tweet content (for backwards compatibility)
 - `created_at`, `bookmarked_at` (TIMESTAMP) - Time metadata
 - `tweet_url` (TEXT NOT NULL) - Link to tweet
 - `like_count`, `retweet_count`, `reply_count`, `impression_count`, `bookmark_count` (INTEGER) - Engagement metrics
@@ -600,6 +689,13 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 - `context_annotations` (TEXT) - JSON array of context annotations (legacy/optional)
 - `raw_json` (TEXT) - Raw payload snapshot for troubleshooting
 - `last_synced_at` (TIMESTAMP) - Last successful sync timestamp for this bookmark
+- `content_kind` (TEXT) - Normalized content type: `article`, `note_tweet`, `post`, `link_only`, `media_only`, `unknown`
+- `content_title` (TEXT) - Title from article metadata (when available)
+- `content_preview` (TEXT) - Preview text from article (when available)
+- `content_text` (TEXT) - Canonical searchable text following precedence: `article.plain_text` > `note_tweet.text` > `text`
+- `source_unwound_url` (TEXT) - Best resolved external/article URL
+- `artifact_path` (TEXT) - Local markdown artifact path in vault
+- `content_hash` (TEXT) - Hash for change detection
 
 **x_bookmark_folders table:**
 - `folder_id` (TEXT PRIMARY KEY) - Folder ID from X API
