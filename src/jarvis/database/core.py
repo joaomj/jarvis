@@ -202,6 +202,19 @@ ON memory_entries(active, created_at);
 
 CREATE INDEX IF NOT EXISTS idx_memory_entries_memory_key
 ON memory_entries(memory_key);
+
+-- Semantic search: chunk embeddings table
+CREATE TABLE IF NOT EXISTS kb_chunk_embeddings (
+    chunk_id INTEGER PRIMARY KEY,
+    embedding BLOB NOT NULL,  -- Stored as JSON array of floats
+    model_name TEXT NOT NULL, -- e.g., 'all-MiniLM-L6-v2'
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (chunk_id) REFERENCES kb_chunks(id) ON DELETE CASCADE
+);
+
+-- Index for fast lookup
+CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_chunk_id ON kb_chunk_embeddings(chunk_id);
+CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_model ON kb_chunk_embeddings(model_name);
 """
 
 
@@ -224,10 +237,8 @@ class DatabaseCore:
         """Backfill newer x_sync_status columns for existing databases."""
         cursor = conn.execute("PRAGMA table_info(x_sync_status)")
         column_names = {row[1] for row in cursor.fetchall()}
-
         if "last_full_sync_date" not in column_names:
             conn.execute("ALTER TABLE x_sync_status ADD COLUMN last_full_sync_date TEXT")
-
         if "last_folders_sync_date" not in column_names:
             conn.execute("ALTER TABLE x_sync_status ADD COLUMN last_folders_sync_date TEXT")
 
@@ -235,7 +246,6 @@ class DatabaseCore:
         """Add normalized content columns to x_bookmarks for Phase 3."""
         cursor = conn.execute("PRAGMA table_info(x_bookmarks)")
         column_names = {row[1] for row in cursor.fetchall()}
-
         new_columns = [
             ("content_kind", "TEXT"),
             ("content_title", "TEXT"),
@@ -245,50 +255,21 @@ class DatabaseCore:
             ("artifact_path", "TEXT"),
             ("content_hash", "TEXT"),
         ]
-
         for column_name, column_type in new_columns:
             if column_name not in column_names:
                 conn.execute(f"ALTER TABLE x_bookmarks ADD COLUMN {column_name} {column_type}")
 
-    def _execute(
-        self,
-        query: str,
-        params: tuple = (),
-        *,
-        fetch: bool = False,
-    ) -> list | None:
-        """Execute a query with error handling.
-
-        Args:
-            query: SQL query.
-            params: Query parameters.
-            fetch: Whether to fetch and return results.
-
-        Returns:
-            List of rows if fetch=True, None otherwise.
-        """
+    def _execute(self, query: str, params: tuple = (), *, fetch: bool = False) -> list | None:
+        """Execute a query."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("PRAGMA foreign_keys = ON")
             if fetch:
-                cursor = conn.execute(query, params)
-                return cursor.fetchall()
+                return conn.execute(query, params).fetchall()
             conn.execute(query, params)
             return None
 
-    def _execute_dict(
-        self,
-        query: str,
-        params: tuple = (),
-    ) -> list[dict]:
-        """Execute a query and return results as list of dicts.
-
-        Args:
-            query: SQL query.
-            params: Query parameters.
-
-        Returns:
-            List of dictionaries with column names as keys.
-        """
+    def _execute_dict(self, query: str, params: tuple = ()) -> list[dict]:
+        """Execute a query and return results as list of dicts."""
         with sqlite3.connect(self.db_path) as conn:
             conn.execute("PRAGMA foreign_keys = ON")
             cursor = conn.execute(query, params)
