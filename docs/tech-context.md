@@ -726,6 +726,57 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 - `idx_bookmark_folders_tweet_id` on `x_bookmark_folder_assignments(tweet_id)` - Fast export by tweet
 - `idx_bookmark_folders_folder_id` on `x_bookmark_folder_assignments(folder_id)` - Fast export by folder
 
+### Retrieval Architecture
+
+**Hybrid Search (Lexical + Semantic):**
+
+Jarvis uses a two-stage retrieval system that combines BM25 lexical search with sentence-transformer embeddings:
+
+**Components:**
+- **Lexical Search**: SQLite FTS5 on `kb_chunks_fts` table for exact word/phrase matching
+- **Semantic Search**: Cosine similarity on 384-dimensional embeddings (all-MiniLM-L6-v2 model)
+- **Hybrid Merge**: Weighted combination of lexical and semantic scores
+
+**Processing Flow:**
+```
+Query → Tokenize → Parallel Search
+    ├─ Lexical: FTS query on chunk_text + heading
+    └─ Semantic: Embed query → Cosine similarity with stored embeddings
+         ↓
+    Merge Results (weighted scores)
+         ↓
+    Rank by: Source priority → Hybrid score
+         ↓
+    Return top N with citations
+```
+
+**Query Type Detection:**
+- **Exact match queries** (with quotes, URLs, identifiers): Use lexical search primarily
+- **Conceptual queries** ("what is", "explain", "about"): Benefit from semantic search
+- **Default**: Balanced 50/50 weighting
+
+**Source Priority (for ranking):**
+1. Attachments (user explicitly shared)
+2. Memories (user curated)
+3. Bookmarks (user saved)
+4. Web sources (saved URLs)
+
+**Embedding Storage:**
+- **Table**: `kb_chunk_embeddings`
+- **Schema**: chunk_id (FK), embedding (JSON array), model_name, created_at
+- **Model**: all-MiniLM-L6-v2 (384 dimensions, fast inference)
+- **Storage**: ~1.5KB per chunk (JSON float array)
+
+**Configuration:**
+- `DEFAULT_LEXICAL_WEIGHT = 0.5`
+- `DEFAULT_SEMANTIC_WEIGHT = 0.5`
+- `DEFAULT_SEMANTIC_CANDIDATES = 50`
+
+**Performance:**
+- Lexical: <10ms for FTS query
+- Semantic: ~100ms to embed query + scan embeddings
+- Hybrid: ~150ms total (when embeddings cached)
+
 ### Error Handling Strategy
 
 **Three Severity Levels:**
