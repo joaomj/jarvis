@@ -3,219 +3,10 @@
 import sqlite3
 from pathlib import Path
 
+from jarvis.database.schema_sql import SCHEMA
 from jarvis.logging_config import get_logger
 
 logger = get_logger(__name__)
-
-SCHEMA = """
-CREATE TABLE IF NOT EXISTS users (
-    telegram_id INTEGER PRIMARY KEY,
-    allowed BOOLEAN DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    telegram_id INTEGER,
-    direction TEXT,
-    content TEXT,
-    timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS user_states (
-    telegram_id INTEGER PRIMARY KEY,
-    state_type TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS responses (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    session_id TEXT NOT NULL,
-    telegram_id INTEGER NOT NULL,
-    model TEXT,
-    content TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_responses_telegram_id ON responses(telegram_id);
-CREATE INDEX IF NOT EXISTS idx_responses_created_at ON responses(created_at);
-
-CREATE TABLE IF NOT EXISTS x_bookmarks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    tweet_id TEXT UNIQUE NOT NULL,
-    author_username TEXT NOT NULL,
-    author_name TEXT,
-    author_verified BOOLEAN DEFAULT 0,
-    text TEXT NOT NULL,
-    note_text TEXT,
-    created_at TIMESTAMP,
-    bookmarked_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    tweet_url TEXT NOT NULL,
-    like_count INTEGER DEFAULT 0,
-    retweet_count INTEGER DEFAULT 0,
-    reply_count INTEGER DEFAULT 0,
-    impression_count INTEGER DEFAULT 0,
-    bookmark_count INTEGER DEFAULT 0,
-    media_urls TEXT,
-    urls_expanded TEXT,
-    context_annotations TEXT,
-    raw_json TEXT,
-    last_synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS x_sync_status (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    last_sync_date TEXT,
-    last_sync_at TIMESTAMP,
-    last_tweet_id TEXT,
-    last_full_sync_date TEXT,
-    last_folders_sync_date TEXT,
-    total_bookmarks INTEGER DEFAULT 0,
-    sync_in_progress BOOLEAN DEFAULT 0,
-    first_sync_complete BOOLEAN DEFAULT 0
-);
-
-CREATE TABLE IF NOT EXISTS x_oauth_tokens (
-    id INTEGER PRIMARY KEY CHECK (id = 1),
-    access_token TEXT NOT NULL,
-    refresh_token TEXT NOT NULL,
-    expires_at TIMESTAMP NOT NULL,
-    scope TEXT,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_bookmarks_bookmarked_at ON x_bookmarks(bookmarked_at);
-CREATE INDEX IF NOT EXISTS idx_bookmarks_created_at ON x_bookmarks(created_at);
-
-CREATE TABLE IF NOT EXISTS x_bookmark_folders (
-    folder_id TEXT PRIMARY KEY,
-    folder_name TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS x_bookmark_folder_assignments (
-    tweet_id TEXT NOT NULL,
-    folder_id TEXT NOT NULL,
-    assigned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (tweet_id, folder_id),
-    FOREIGN KEY (tweet_id) REFERENCES x_bookmarks(tweet_id) ON DELETE CASCADE,
-    FOREIGN KEY (folder_id) REFERENCES x_bookmark_folders(folder_id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_bookmark_folders_tweet_id ON x_bookmark_folder_assignments(tweet_id);
-CREATE INDEX IF NOT EXISTS idx_bookmark_folders_folder_id ON x_bookmark_folder_assignments(folder_id);
-
-CREATE TABLE IF NOT EXISTS telegram_turn_feedback (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    telegram_user_id INTEGER NOT NULL,
-    telegram_chat_id INTEGER NOT NULL,
-    telegram_in_message_id INTEGER,
-    telegram_out_message_id INTEGER,
-    source TEXT NOT NULL,
-    opencode_session_id TEXT,
-    model_full TEXT,
-    agent TEXT,
-    prompt_text TEXT NOT NULL,
-    response_text TEXT NOT NULL,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    vote INTEGER,
-    voted_at TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_turn_feedback_vote_voted_at ON telegram_turn_feedback(vote, voted_at);
-CREATE INDEX IF NOT EXISTS idx_turn_feedback_created_at ON telegram_turn_feedback(created_at);
-
-INSERT OR IGNORE INTO x_sync_status (id) VALUES (1);
-
-CREATE TABLE IF NOT EXISTS opencode_sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    telegram_user_id INTEGER NOT NULL,
-    opencode_session_id TEXT NOT NULL UNIQUE,
-    session_title TEXT NOT NULL,
-    date_key TEXT NOT NULL,  -- YYYY-MM-DD for daily rotation
-    model_used TEXT,          -- Last model used (for debugging/auditing)
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_sessions_user_date ON opencode_sessions(telegram_user_id, date_key);
-CREATE INDEX IF NOT EXISTS idx_sessions_opencode_id ON opencode_sessions(opencode_session_id);
-
-CREATE TABLE IF NOT EXISTS kb_documents (
-    id INTEGER PRIMARY KEY,
-    markdown_path TEXT UNIQUE NOT NULL,
-    url_original TEXT,
-    url_canonical TEXT,
-    title TEXT,
-    domain TEXT,
-    captured_at TEXT,
-    content_hash TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'indexed',
-    indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    last_error TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_kb_documents_url_canonical ON kb_documents(url_canonical);
-CREATE INDEX IF NOT EXISTS idx_kb_documents_indexed_at ON kb_documents(indexed_at);
-
-CREATE TABLE IF NOT EXISTS kb_chunks (
-    id INTEGER PRIMARY KEY,
-    document_id INTEGER NOT NULL,
-    chunk_index INTEGER NOT NULL,
-    heading TEXT,
-    line_start INTEGER NOT NULL,
-    line_end INTEGER NOT NULL,
-    chunk_text TEXT NOT NULL,
-    UNIQUE(document_id, chunk_index),
-    FOREIGN KEY (document_id) REFERENCES kb_documents(id) ON DELETE CASCADE
-);
-
-CREATE INDEX IF NOT EXISTS idx_kb_chunks_document_chunk ON kb_chunks(document_id, chunk_index);
-
-CREATE VIRTUAL TABLE IF NOT EXISTS kb_chunks_fts USING fts5(
-    chunk_text,
-    heading,
-    chunk_id UNINDEXED,
-    document_id UNINDEXED
-);
-
-CREATE TABLE IF NOT EXISTS kb_ingest_log (
-    id INTEGER PRIMARY KEY,
-    markdown_path TEXT NOT NULL,
-    error TEXT NOT NULL,
-    logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS memory_entries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    memory_key TEXT NOT NULL UNIQUE,
-    content TEXT NOT NULL,
-    markdown_path TEXT,
-    tags_csv TEXT,
-    active INTEGER NOT NULL DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    forgotten_at TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_memory_entries_active_created_at
-ON memory_entries(active, created_at);
-
-CREATE INDEX IF NOT EXISTS idx_memory_entries_memory_key
-ON memory_entries(memory_key);
-
--- Semantic search: chunk embeddings table
-CREATE TABLE IF NOT EXISTS kb_chunk_embeddings (
-    chunk_id INTEGER PRIMARY KEY,
-    embedding BLOB NOT NULL,  -- Stored as JSON array of floats
-    model_name TEXT NOT NULL, -- e.g., 'all-MiniLM-L6-v2'
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (chunk_id) REFERENCES kb_chunks(id) ON DELETE CASCADE
-);
-
--- Index for fast lookup
-CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_chunk_id ON kb_chunk_embeddings(chunk_id);
-CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_model ON kb_chunk_embeddings(model_name);
-"""
 
 
 class DatabaseCore:
@@ -231,16 +22,88 @@ class DatabaseCore:
             conn.execute("PRAGMA foreign_keys = ON")
             conn.executescript(SCHEMA)
             self._migrate_sync_status_columns(conn)
+            self._migrate_memory_columns(conn)
             self._migrate_bookmark_content_columns(conn)
 
     def _migrate_sync_status_columns(self, conn: sqlite3.Connection) -> None:
         """Backfill newer x_sync_status columns for existing databases."""
         cursor = conn.execute("PRAGMA table_info(x_sync_status)")
         column_names = {row[1] for row in cursor.fetchall()}
+
         if "last_full_sync_date" not in column_names:
             conn.execute("ALTER TABLE x_sync_status ADD COLUMN last_full_sync_date TEXT")
+
         if "last_folders_sync_date" not in column_names:
             conn.execute("ALTER TABLE x_sync_status ADD COLUMN last_folders_sync_date TEXT")
+
+    def _migrate_memory_columns(self, conn: sqlite3.Connection) -> None:
+        """Backfill newer memory columns for existing databases."""
+        cursor = conn.execute("PRAGMA table_info(memory_entries)")
+        column_names = {str(row[1]) for row in cursor.fetchall()}
+
+        if "title" not in column_names:
+            conn.execute("ALTER TABLE memory_entries ADD COLUMN title TEXT")
+        if "memory_type" not in column_names:
+            conn.execute("ALTER TABLE memory_entries ADD COLUMN memory_type TEXT DEFAULT 'fact'")
+        if "importance" not in column_names:
+            conn.execute("ALTER TABLE memory_entries ADD COLUMN importance REAL DEFAULT 0.5")
+        if "strength" not in column_names:
+            conn.execute("ALTER TABLE memory_entries ADD COLUMN strength REAL DEFAULT 1.0")
+        if "access_count" not in column_names:
+            conn.execute("ALTER TABLE memory_entries ADD COLUMN access_count INTEGER DEFAULT 0")
+        if "is_permanent" not in column_names:
+            conn.execute("ALTER TABLE memory_entries ADD COLUMN is_permanent INTEGER DEFAULT 0")
+        if "last_accessed" not in column_names:
+            conn.execute("ALTER TABLE memory_entries ADD COLUMN last_accessed TIMESTAMP")
+
+        conn.execute(
+            "UPDATE memory_entries SET title = COALESCE(title, memory_key) WHERE title IS NULL"
+        )
+
+    def _execute(
+        self,
+        query: str,
+        params: tuple = (),
+        *,
+        fetch: bool = False,
+    ) -> list | None:
+        """Execute a query with error handling.
+
+        Args:
+            query: SQL query.
+            params: Query parameters.
+            fetch: Whether to fetch and return results.
+
+        Returns:
+            List of rows if fetch=True, None otherwise.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA foreign_keys = ON")
+            if fetch:
+                cursor = conn.execute(query, params)
+                return cursor.fetchall()
+            conn.execute(query, params)
+            return None
+
+    def _execute_dict(
+        self,
+        query: str,
+        params: tuple = (),
+    ) -> list[dict]:
+        """Execute a query and return results as list of dicts.
+
+        Args:
+            query: SQL query.
+            params: Query parameters.
+
+        Returns:
+            List of dictionaries with column names as keys.
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            conn.execute("PRAGMA foreign_keys = ON")
+            cursor = conn.execute(query, params)
+            columns = [desc[0] for desc in cursor.description]
+            return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]
 
     def _migrate_bookmark_content_columns(self, conn: sqlite3.Connection) -> None:
         """Add normalized content columns to x_bookmarks for Phase 3."""
@@ -253,25 +116,7 @@ class DatabaseCore:
             ("content_text", "TEXT"),
             ("source_unwound_url", "TEXT"),
             ("artifact_path", "TEXT"),
-            ("content_hash", "TEXT"),
         ]
         for column_name, column_type in new_columns:
             if column_name not in column_names:
                 conn.execute(f"ALTER TABLE x_bookmarks ADD COLUMN {column_name} {column_type}")
-
-    def _execute(self, query: str, params: tuple = (), *, fetch: bool = False) -> list | None:
-        """Execute a query."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("PRAGMA foreign_keys = ON")
-            if fetch:
-                return conn.execute(query, params).fetchall()
-            conn.execute(query, params)
-            return None
-
-    def _execute_dict(self, query: str, params: tuple = ()) -> list[dict]:
-        """Execute a query and return results as list of dicts."""
-        with sqlite3.connect(self.db_path) as conn:
-            conn.execute("PRAGMA foreign_keys = ON")
-            cursor = conn.execute(query, params)
-            columns = [desc[0] for desc in cursor.description]
-            return [dict(zip(columns, row, strict=True)) for row in cursor.fetchall()]

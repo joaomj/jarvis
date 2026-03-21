@@ -89,14 +89,12 @@ class TestJarvisBotPolling:
         mock_opencode.send_message.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_new_session_command_creates_session(self, settings):
-        """Test /new command creates session and stores session ID."""
-        from jarvis.handlers.commands import handle_intercept_command
-
+    async def test_new_command_passed_to_opencode(self, settings):
+        """Test /new command is passed through to OpenCode."""
         mock_opencode = MagicMock()
         mock_opencode.create_session = AsyncMock(return_value="test-session-123")
-        mock_opencode.send_message = AsyncMock(
-            return_value=[{"type": "text", "text": "Session started"}]
+        mock_opencode.send_command = AsyncMock(
+            return_value=([{"type": "text", "text": "New session created"}], {"modelID": "gpt-4o"})
         )
 
         bot = JarvisBot(settings)
@@ -104,7 +102,8 @@ class TestJarvisBotPolling:
         bot.session_manager = SessionManager(mock_opencode, bot.db)
         bot.db.add_user(12345)
 
-        result = await handle_intercept_command("new", "Test Session", 12345, bot)
-        mock_opencode.create_session.assert_called_once_with(title="Test Session")
-        assert "test-session-123" in result
-        assert bot.session_manager.get_session(12345) == "test-session-123"
+        from jarvis.command_router import route_command
+
+        handled_locally, result = await route_command("new", "Test Session", 12345, bot)
+        assert handled_locally is False
+        assert result == []
