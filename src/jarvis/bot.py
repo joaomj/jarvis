@@ -22,7 +22,6 @@ from jarvis.formatter import ResponseFormatter
 from jarvis.kb_indexer import KBIndexer
 from jarvis.logging_config import get_logger
 from jarvis.memory_store import MemoryStore
-from jarvis.model_selector import ModelSelector
 from jarvis.models_manager import ModelsManager
 from jarvis.opencode_client import OpenCodeClient
 from jarvis.polling_engine import PollingEngine
@@ -48,7 +47,6 @@ class JarvisBot(
         self.formatter = ResponseFormatter()
         self.opencode: OpenCodeClient | None = None
         self.session_manager: SessionManager | None = None
-        self.model_selector: ModelSelector | None = None
         self.app: Application | None = None
         self.polling: PollingEngine | None = None
         self.db = Database(
@@ -88,7 +86,6 @@ class JarvisBot(
 
         logger.info("opencode_connected", healthy=healthy, reason=reason)
         self.session_manager = SessionManager(self.opencode, self.db)
-        self.model_selector = ModelSelector(self.db, self.models)
         self.db.add_user(self.settings.telegram_user_id)
 
         deleted = self.db.cleanup_old_responses()

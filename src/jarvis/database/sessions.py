@@ -233,3 +233,33 @@ class SessionOperations(DatabaseCore):
                 error=str(e),
             )
             return False
+
+    def get_last_used_model(self, user_id: int) -> str | None:
+        """Get the last used model for a user from session history.
+
+        Args:
+            user_id: Telegram user ID.
+
+        Returns:
+            Last used model ID (e.g., "openai/gpt-5.2") or None if no history.
+        """
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                cursor = conn.execute(
+                    """SELECT model_used FROM opencode_sessions
+                       WHERE telegram_user_id = ? AND model_used IS NOT NULL
+                       ORDER BY created_at DESC
+                       LIMIT 1""",
+                    (user_id,),
+                )
+                row = cursor.fetchone()
+                if row and row[0]:
+                    return str(row[0])
+                return None
+        except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as e:
+            logger.warning(
+                "get_last_used_model_failed",
+                user_id=user_id,
+                error=str(e),
+            )
+            return None

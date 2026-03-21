@@ -3,11 +3,11 @@
 # mypy: ignore-errors
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from telegram import Update
 
-from jarvis.command_router import route_command
 from jarvis.logging_config import get_logger
 from jarvis.opencode_client import OpenCodeError
 from jarvis.utils import is_url_only
@@ -18,7 +18,7 @@ logger = get_logger(__name__)
 class BotUpdateMixin:
     """Methods that process inbound Telegram updates."""
 
-    async def _process_input(  # noqa: PLR0911, PLR0912
+    async def _process_input(  # noqa: PLR0911
         self,
         update: Update,
         user_id: int,
@@ -29,25 +29,10 @@ class BotUpdateMixin:
         is_private = self._is_private_intent(text)
         processed_text = self._strip_private_marker(text) if is_private else text
 
-        # Suggest /save command for URL-only messages
         if is_url_only(processed_text) and update.effective_message:
             await update.effective_message.reply_text(
                 f"💡 To save this URL, use `/save {processed_text}`"
             )
-            return None
-
-        if self.model_selector and self.model_selector.is_awaiting_selection(user_id):
-            msg = update.effective_message
-            if msg:
-                response = await self.model_selector.handle_selection(user_id, processed_text)
-                await self._send_feedback_message(
-                    update,
-                    user_id,
-                    response,
-                    source="model_select",
-                    prompt_text=f"[model selection] {processed_text}",
-                    parse_mode="HTML",
-                )
             return None
 
         if await self.events.handle_interaction_input(update, user_id, processed_text):
@@ -62,31 +47,38 @@ class BotUpdateMixin:
         if not self.opencode:
             raise RuntimeError("OpenCode not initialized")
 
-        # Handle both Telegram /commands and !commands
         if processed_text.startswith("/") or processed_text.startswith("!"):
             parts = processed_text[1:].split(maxsplit=1)
             command = parts[0]
             arguments = parts[1] if len(parts) > 1 else ""
 
-            if command in {"models", "favmodels"}:
-                await self._start_model_selection(update, user_id)
-                return None
+            # Check if command is blocked
+            from jarvis.command_router import is_command_blocked
 
-            # Route bridge commands for both / and ! prefixes
-            handled_locally, result = await route_command(command, arguments, user_id, self)
-            if handled_locally:
+            block_reason = is_command_blocked(command)
+            if block_reason:
                 await self._send_feedback_message(
                     update,
                     user_id,
-                    result,
+                    block_reason,
                     source="command",
                     prompt_text=f"[command] {command}",
                     parse_mode="HTML",
                 )
                 return None
 
-            # If not handled locally, send to OpenCode for both / and ! prefixes
             response_parts, info = await self.opencode.send_command(session_id, command, arguments)
+
+            # Sync session with SessionManager after /new command
+            if command == "new" and self.session_manager:
+                new_session_id = self._extract_session_id_from_new_response(response_parts)
+                if new_session_id:
+                    self.session_manager.set_session(user_id, new_session_id)
+                    logger.info(
+                        "session_synced_after_new_command",
+                        new_session_id=new_session_id,
+                        user_id=user_id,
+                    )
         else:
             if self.events.has_pending_prompt(session_id):
                 await self._send_feedback_message(
@@ -98,11 +90,7 @@ class BotUpdateMixin:
                 )
                 return None
 
-            selected_model = None
-            if self.model_selector:
-                selected_model = self.model_selector.get_model_for_user(user_id)
-
-            await self.opencode.prompt_async(session_id, processed_text, model=selected_model)
+            await self.opencode.prompt_async(session_id, processed_text)
             self.events.register_pending_prompt(
                 session_id=session_id,
                 user_id=user_id,
@@ -223,3 +211,31 @@ class BotUpdateMixin:
             )
         await update.effective_message.reply_text(status)
         return True
+
+    def _extract_session_id_from_new_response(
+        self, response_parts: list[dict[str, Any]]
+    ) -> str | None:
+        """Extract new session ID from /new command response.
+
+        Args:
+            response_parts: Response parts from OpenCode send_command
+
+        Returns:
+            New session ID if found, None otherwise
+        """
+        for part in response_parts:
+            if part.get("type") == "text":
+                text = part.get("text", "")
+                # Look for session ID pattern in response
+                # Typical format: "Created new session: <session_id>" or just the ID
+                # Match common session ID patterns (UUID-like or hash strings)
+                match = re.search(
+                    r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", text
+                )
+                if match:
+                    return match.group(0)
+                # Also try to find any long alphanumeric string that could be a session ID
+                match = re.search(r"\b([a-f0-9]{24,32})\b", text)
+                if match:
+                    return match.group(1)
+        return None

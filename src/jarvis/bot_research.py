@@ -94,15 +94,12 @@ class BotResearchMixin:
         if not self.opencode or not hasattr(self, "deep_research"):
             return False
 
-        selected_model = (
-            self.model_selector.get_model_for_user(user_id) if self.model_selector else None
-        )
         try:
             decision = await self.deep_research.classify_request(
                 opencode=self.opencode,
                 session_id=session_id,
                 question=text,
-                model=selected_model,
+                model=None,
             )
         except Exception as error:
             logger.warning("deep_research_gate_failed", error=str(error))
@@ -118,7 +115,7 @@ class BotResearchMixin:
                 session_id=session_id,
                 user_id=user_id,
                 text=text,
-                model=selected_model,
+                model=None,
             )
             message = update.effective_message
             if message is None:
@@ -147,7 +144,7 @@ class BotResearchMixin:
                 session_id=session_id,
                 user_id=user_id,
                 text=text,
-                model=selected_model,
+                model=None,
             ),
         )
         return True

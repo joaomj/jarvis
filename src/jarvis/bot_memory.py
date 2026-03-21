@@ -141,14 +141,11 @@ class BotMemoryMixin:
 
     async def _classify_memory_intent(
         self,
-        user_id: int,
+        _user_id: int,
         session_id: str,
         text: str,
     ) -> dict[str, object]:
         """Classify memory action using model understanding."""
-        selected_model = (
-            self.model_selector.get_model_for_user(user_id) if self.model_selector else None
-        )
         prompt = (
             "Classify whether this message asks to manage personal memory. Return JSON only with keys: "
             "action, payload, needs_confirmation, confirmation_question.\n"
@@ -158,7 +155,6 @@ class BotMemoryMixin:
         parts, _info = await self.opencode.send_message(
             session_id,
             prompt,
-            model=selected_model,
             agent="dr-gate",
         )
         combined = "\n".join(part.get("text", "") for part in parts if part.get("type") == "text")

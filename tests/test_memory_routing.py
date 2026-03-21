@@ -43,7 +43,6 @@ def bot(integration_settings, fake_telegram_app: FakeTelegramApp) -> JarvisBot:
     bot = JarvisBot(integration_settings)
     bot.app = fake_telegram_app
     bot.db.add_user(integration_settings.telegram_user_id)
-    bot.model_selector = None
     return bot
 
 
