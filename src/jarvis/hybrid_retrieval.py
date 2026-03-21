@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from jarvis.database import Database
 from jarvis.embedding import EmbeddedChunk, EmbeddingGenerator, cosine_similarity
@@ -79,21 +79,21 @@ def hybrid_retrieve(  # noqa: PLR0913
     logger.debug("lexical_search_complete", query=query[:50], lexical_results=len(lexical_chunks))
 
     # Get semantic results if embeddings available
-    semantic_chunks: list[EmbeddedChunk] = []
+    semantic_results: list[tuple[float, EmbeddedChunk]] = []
     if embedding_generator is not None and semantic_weight > 0:
         try:
-            semantic_chunks = _semantic_search(
+            semantic_results = _semantic_search(
                 db, query, embedding_generator, top_k=semantic_candidates
             )
             logger.debug(
-                "semantic_search_complete", query=query[:50], semantic_results=len(semantic_chunks)
+                "semantic_search_complete", query=query[:50], semantic_results=len(semantic_results)
             )
         except Exception as error:
             logger.warning("semantic_search_failed", error=str(error))
             semantic_weight = 0
 
     # Merge and rerank
-    merged = _merge_results(lexical_chunks, semantic_chunks, lexical_weight, semantic_weight)
+    merged = _merge_results(lexical_chunks, semantic_results, lexical_weight, semantic_weight, db)
 
     # Apply per-document cap and return top results
     results: list[HybridRetrievedChunk] = []
@@ -112,7 +112,7 @@ def hybrid_retrieve(  # noqa: PLR0913
         "hybrid_retrieval_complete",
         query=query[:50],
         lexical_results=len(lexical_chunks),
-        semantic_results=len(semantic_chunks),
+        semantic_results=len(semantic_results),
         final_results=len(results),
     )
     return results
@@ -123,8 +123,13 @@ def _semantic_search(
     query: str,
     embedding_generator: EmbeddingGenerator,
     top_k: int = 50,
-) -> list[EmbeddedChunk]:
-    """Perform semantic search using embeddings."""
+) -> list[tuple[float, EmbeddedChunk]]:
+    """Perform semantic search using embeddings.
+
+    Returns:
+        List of (similarity_score, chunk) tuples sorted by similarity descending.
+    """
+
     from jarvis.database.embedding_ops import EmbeddingOperations  # noqa: PLC0415
 
     query_embedding = embedding_generator.embed_query(query)
@@ -144,23 +149,58 @@ def _semantic_search(
         scored_chunks.append((similarity, chunk))
 
     scored_chunks.sort(key=lambda x: x[0], reverse=True)
-    return [chunk for _, chunk in scored_chunks[:top_k]]
+    return scored_chunks[:top_k]
+
+
+def _get_chunk_details(db: Database, chunk_id: int) -> dict[str, Any] | None:
+    """Get full chunk details including document metadata."""
+    import sqlite3  # noqa: PLC0415
+
+    try:
+        with sqlite3.connect(str(db.db_path)) as conn:
+            conn.row_factory = sqlite3.Row
+            cursor = conn.execute(
+                """SELECT
+                    c.id as chunk_id,
+                    c.document_id,
+                    c.chunk_index,
+                    c.heading,
+                    c.line_start,
+                    c.line_end,
+                    c.chunk_text,
+                    d.title,
+                    d.url_original,
+                    d.markdown_path
+                FROM kb_chunks c
+                JOIN kb_documents d ON d.id = c.document_id
+                WHERE c.id = ?""",
+                (chunk_id,),
+            )
+            row = cursor.fetchone()
+            if row:
+                return dict(row)
+            return None
+    except Exception as error:
+        logger.warning("get_chunk_details_failed", chunk_id=chunk_id, error=str(error))
+        return None
 
 
 def _merge_results(
     lexical_chunks: list[RetrievedChunk],
-    semantic_chunks: list[EmbeddedChunk],
+    semantic_results: list[tuple[float, EmbeddedChunk]],
     lexical_weight: float,
     semantic_weight: float,
+    db: Database,
 ) -> list[HybridRetrievedChunk]:
     """Merge lexical and semantic results with weighted scoring."""
     lexical_max = max((c.score for c in lexical_chunks), default=1.0) or 1.0
     by_chunk_id: dict[int, HybridRetrievedChunk] = {}
 
-    # Add lexical results
+    # Add lexical results (keyed by chunk_id to avoid collisions across documents)
     for chunk in lexical_chunks:
         normalized_lexical = chunk.score / lexical_max
-        by_chunk_id[chunk.chunk_index] = HybridRetrievedChunk(
+        by_chunk_id[chunk.chunk_id] = HybridRetrievedChunk(
+            chunk_id=chunk.chunk_id,
             document_id=chunk.document_id,
             chunk_index=chunk.chunk_index,
             heading=chunk.heading,
@@ -175,15 +215,18 @@ def _merge_results(
             semantic_score=0.0,
         )
 
-    # Add/merge semantic results
-    for chunk in semantic_chunks:
-        if chunk.chunk_id in by_chunk_id:
-            existing = by_chunk_id[chunk.chunk_id]
-            # Calculate semantic score from chunk similarity (need query embedding context)
-            # For merged results, we need to recalculate - placeholder for now
-            normalized_semantic = 0.5
+    # Calculate semantic max for normalization
+    semantic_max = max((score for score, _ in semantic_results), default=1.0) or 1.0
 
+    # Add/merge semantic results
+    for similarity, chunk in semantic_results:
+        normalized_semantic = similarity / semantic_max
+
+        if chunk.chunk_id in by_chunk_id:
+            # Merge with existing lexical result
+            existing = by_chunk_id[chunk.chunk_id]
             by_chunk_id[chunk.chunk_id] = HybridRetrievedChunk(
+                chunk_id=existing.chunk_id,
                 document_id=existing.document_id,
                 chunk_index=existing.chunk_index,
                 heading=existing.heading,
@@ -197,6 +240,25 @@ def _merge_results(
                 lexical_score=existing.lexical_score,
                 semantic_score=normalized_semantic,
             )
+        else:
+            # Add semantic-only chunk - need to fetch full details from DB
+            details = _get_chunk_details(db, chunk.chunk_id)
+            if details:
+                by_chunk_id[chunk.chunk_id] = HybridRetrievedChunk(
+                    chunk_id=chunk.chunk_id,
+                    document_id=details["document_id"],
+                    chunk_index=details["chunk_index"],
+                    heading=details.get("heading"),
+                    line_start=details["line_start"],
+                    line_end=details["line_end"],
+                    chunk_text=details["chunk_text"],
+                    title=details.get("title"),
+                    url_original=details.get("url_original"),
+                    markdown_path=details["markdown_path"],
+                    score=normalized_semantic * semantic_weight,
+                    lexical_score=0.0,
+                    semantic_score=normalized_semantic,
+                )
 
     return list(by_chunk_id.values())
 

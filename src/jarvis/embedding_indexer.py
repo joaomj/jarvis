@@ -5,6 +5,7 @@ Generates and stores embeddings for KB chunks after indexing.
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -138,7 +139,7 @@ class EmbeddingIndexer:
 
         # Get total chunks count
         try:
-            with self.db.db_path.connect() as conn:  # type: ignore
+            with sqlite3.connect(str(self.db.db_path)) as conn:
                 total = conn.execute("SELECT COUNT(*) FROM kb_chunks").fetchone()[0]
         except Exception:
             total = 0

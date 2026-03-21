@@ -20,12 +20,11 @@ import json
 import sys
 from pathlib import Path
 
-# Add src to path
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 
+from backfill_utils import fetch_all_bookmarks, generate_validation_report, parse_existing_bookmark
+
 from jarvis.bookmark_artifact_store import BookmarkArtifactStore
-from jarvis.bookmarks.models import Bookmark
-from jarvis.bookmarks.parser import parse_bookmark
 from jarvis.database import Database
 from jarvis.embedding_indexer import EmbeddingIndexer
 from jarvis.kb_indexer import KBIndexer
@@ -35,57 +34,13 @@ from jarvis.sync_health import SyncHealthChecker
 logger = get_logger(__name__)
 
 
-def parse_existing_bookmark(row: dict) -> Bookmark | None:
-    """Parse a database row back into a Bookmark model."""
-    try:
-        # Parse raw_json
-        raw_json = json.loads(row.get("raw_json", "{}"))
-        if not raw_json:
-            return None
-
-        # Reconstruct users dict from author fields
-        author_id = raw_json.get("author_id", "")
-        users = {}
-        if author_id:
-            users[author_id] = {
-                "username": row.get("author_username", ""),
-                "name": row.get("author_name", ""),
-                "verified": bool(row.get("author_verified", 0)),
-            }
-
-        # Parse using the parser
-        bookmark = parse_bookmark(raw_json, users)
-
-        # Override with DB fields if they exist
-        bookmark.tweet_id = row.get("tweet_id", bookmark.tweet_id)
-        bookmark.bookmarked_at = row.get("bookmarked_at")
-
-        return bookmark
-
-    except Exception as error:
-        logger.warning(
-            "parse_existing_bookmark_failed", tweet_id=row.get("tweet_id"), error=str(error)
-        )
-        return None
-
-
 async def backfill_bookmarks(
     db_path: str,
     vault_root: str,
     batch_size: int = 100,
     dry_run: bool = False,
 ) -> dict[str, object]:
-    """Backfill existing bookmarks with normalized content and artifacts.
-
-    Args:
-        db_path: Path to SQLite database
-        vault_root: Root directory for vault artifacts
-        batch_size: Number of bookmarks to process per batch
-        dry_run: If True, don't write changes
-
-    Returns:
-        Dict with backfill statistics
-    """
+    """Backfill existing bookmarks with normalized content and artifacts."""
     stats = {
         "total_bookmarks": 0,
         "reparsed": 0,
@@ -96,42 +51,26 @@ async def backfill_bookmarks(
 
     logger.info("starting_backfill", dry_run=dry_run, db_path=db_path)
 
-    # Initialize components
     db = Database(db_path)
     artifact_store = BookmarkArtifactStore(db, vault_root)
+    rows = fetch_all_bookmarks(db)
 
-    # Get all bookmarks
-    try:
-        with db.db_path.connect() as conn:  # type: ignore
-            cursor = conn.execute(
-                """SELECT tweet_id, author_username, author_name, author_verified,
-                          text, created_at, tweet_url, raw_json, content_kind, artifact_path
-                   FROM x_bookmarks"""
-            )
-            rows = [
-                dict(zip([desc[0] for desc in cursor.description], row, strict=True))
-                for row in cursor.fetchall()
-            ]
-    except Exception as error:
-        logger.error("fetch_bookmarks_failed", error=str(error))
-        return {**stats, "error": str(error)}
+    if not rows:
+        return {**stats, "error": "Failed to fetch bookmarks"}
 
     stats["total_bookmarks"] = len(rows)
     logger.info("found_bookmarks", count=len(rows))
 
-    # Process in batches
     for i in range(0, len(rows), batch_size):
         batch = rows[i : i + batch_size]
         logger.info("processing_batch", batch_num=i // batch_size + 1, batch_size=len(batch))
 
         for row in batch:
             try:
-                # Skip if already has normalized content and artifact
                 if row.get("content_kind") and row.get("artifact_path"):
                     stats["artifacts_skipped"] += 1
                     continue
 
-                # Parse bookmark from raw_json
                 bookmark = parse_existing_bookmark(row)
                 if not bookmark:
                     stats["errors"] += 1
@@ -147,7 +86,6 @@ async def backfill_bookmarks(
                     )
                     continue
 
-                # Update database with normalized fields
                 db.save_bookmark(
                     tweet_id=bookmark.tweet_id,
                     author_username=bookmark.author.username,
@@ -173,7 +111,6 @@ async def backfill_bookmarks(
                     source_unwound_url=bookmark.source_unwound_url,
                 )
 
-                # Create artifact
                 artifact_path = artifact_store.create_or_update_artifact(bookmark)
                 if artifact_path:
                     stats["artifacts_created"] += 1
@@ -194,17 +131,7 @@ def rebuild_indexes(
     kb_content_dir: str,
     dry_run: bool = False,
 ) -> dict[str, object]:
-    """Rebuild KB indexes and generate embeddings.
-
-    Args:
-        db_path: Path to SQLite database
-        vault_root: Root directory for vault artifacts
-        kb_content_dir: Directory for KB content
-        dry_run: If True, don't write changes
-
-    Returns:
-        Dict with indexing statistics
-    """
+    """Rebuild KB indexes and generate embeddings."""
     stats = {
         "kb_files_scanned": 0,
         "kb_files_indexed": 0,
@@ -221,7 +148,6 @@ def rebuild_indexes(
     try:
         db = Database(db_path)
 
-        # Rebuild KB index
         logger.info("rebuilding_kb_index")
         kb_indexer = KBIndexer(
             db=db,
@@ -240,7 +166,6 @@ def rebuild_indexes(
             skipped=result.skipped_files,
         )
 
-        # Generate embeddings
         logger.info("generating_embeddings")
         embedding_indexer = EmbeddingIndexer(db)
         emb_result = embedding_indexer.index_missing_embeddings()
@@ -260,63 +185,6 @@ def rebuild_indexes(
     return stats
 
 
-def generate_validation_report(db_path: str) -> dict[str, object]:
-    """Generate validation report on bookmark content.
-
-    Args:
-        db_path: Path to SQLite database
-
-    Returns:
-        Dict with validation statistics
-    """
-    logger.info("generating_validation_report")
-
-    try:
-        db = Database(db_path)
-
-        # Get counts by content kind
-        with db.db_path.connect() as conn:  # type: ignore
-            cursor = conn.execute(
-                """SELECT content_kind, COUNT(*) as count
-                   FROM x_bookmarks
-                   GROUP BY content_kind"""
-            )
-            content_kinds = {row[0]: row[1] for row in cursor.fetchall()}
-
-            cursor = conn.execute(
-                """SELECT COUNT(*) FROM x_bookmarks
-                   WHERE content_text IS NULL OR content_text = ''"""
-            )
-            empty_content = cursor.fetchone()[0]
-
-            cursor = conn.execute(
-                """SELECT COUNT(*) FROM x_bookmarks
-                   WHERE content_title IS NOT NULL"""
-            )
-            with_titles = cursor.fetchone()[0]
-
-            cursor = conn.execute(
-                """SELECT COUNT(*) FROM x_bookmarks
-                   WHERE artifact_path IS NOT NULL"""
-            )
-            with_artifacts = cursor.fetchone()[0]
-
-        report = {
-            "total_bookmarks": sum(content_kinds.values()),
-            "by_content_kind": content_kinds,
-            "empty_content_count": empty_content,
-            "with_titles": with_titles,
-            "with_artifacts": with_artifacts,
-        }
-
-        logger.info("validation_report", **report)
-        return report
-
-    except Exception as error:
-        logger.error("validation_report_failed", error=str(error))
-        return {"error": str(error)}
-
-
 async def main():
     parser = argparse.ArgumentParser(description="Backfill and reindex bookmarks")
     parser.add_argument("--db-path", default=".jarvis/jarvis.db", help="Path to SQLite database")
@@ -332,7 +200,6 @@ async def main():
 
     args = parser.parse_args()
 
-    # Expand paths
     db_path = str(Path(args.db_path).expanduser())
     vault_root = str(Path(args.vault_root).expanduser())
     kb_content_dir = str(Path(args.kb_content_dir).expanduser())
@@ -344,7 +211,6 @@ async def main():
     print(f"  Dry Run: {args.dry_run}")
     print()
 
-    # Check sync health first
     print("Checking sync health...")
     health_checker = SyncHealthChecker()
     health_checker.db_path = db_path
@@ -359,7 +225,6 @@ async def main():
 
     results = {}
 
-    # Backfill bookmarks
     if not args.skip_backfill:
         print("Backfilling bookmarks...")
         results["backfill"] = await backfill_bookmarks(
@@ -370,7 +235,6 @@ async def main():
         print(f"  Errors: {results['backfill'].get('errors', 0)}")
         print()
 
-    # Rebuild indexes
     if not args.skip_index:
         print("Rebuilding indexes...")
         results["indexing"] = rebuild_indexes(db_path, vault_root, kb_content_dir, args.dry_run)
@@ -379,15 +243,13 @@ async def main():
             print(f"  Chunks Embedded: {results['indexing'].get('chunks_embedded', 0)}")
         print()
 
-    # Generate validation report
     print("Generating validation report...")
-    results["validation"] = generate_validation_report(db_path)
+    results["validation"] = generate_validation_report(db_path, Database(db_path))
     print(f"  Total Bookmarks: {results['validation'].get('total_bookmarks', 0)}")
     print(f"  By Content Kind: {results['validation'].get('by_content_kind', {})}")
     print(f"  With Artifacts: {results['validation'].get('with_artifacts', 0)}")
     print()
 
-    # Repair sync status
     if not args.dry_run and health.status != "healthy":
         print("Repairing sync status...")
         repair = health_checker.repair_sync_status()

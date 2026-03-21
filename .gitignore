@@ -79,3 +79,4 @@ docker-compose.override.yml
 .p12
 
 # Misc
+vault/
