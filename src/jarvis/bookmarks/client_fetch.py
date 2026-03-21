@@ -66,9 +66,9 @@ class XAPIClientFetchMixin:
 
         params: dict[str, str | int] = {
             "max_results": min(max_results, 100),
-            "tweet.fields": "created_at,author_id",
-            "user.fields": "username",
-            "expansions": "author_id",
+            "tweet.fields": "article,note_tweet,text,entities,attachments,public_metrics,author_id,created_at",
+            "user.fields": "username,name,verified",
+            "expansions": "author_id,attachments.media_keys",
         }
         if since_id:
             params["since_id"] = since_id

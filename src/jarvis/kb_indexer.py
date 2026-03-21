@@ -1,4 +1,4 @@
-"""Knowledge-base indexer for saved markdown URLs."""
+"""Knowledge-base indexer for saved markdown URLs and bookmark artifacts."""
 
 from __future__ import annotations
 
@@ -40,30 +40,59 @@ class ParsedMarkdown:
 
 
 class KBIndexer:
-    """Indexes markdown documents from `.jarvis/url-saves` into SQLite tables."""
+    """Indexes markdown documents from KB directory and bookmark artifacts into SQLite tables."""
 
     def __init__(
         self,
         db: Database,
         content_dir: str,
         chunk_size_chars: int,
-        *,
-        context_store: object | None = None,
+        vault_root: str = "vault",
     ) -> None:
         self._db = db
         self._content_dir = Path(content_dir)
         self._chunk_size_chars = chunk_size_chars
+        self._vault_root = Path(vault_root).expanduser()
         self._last_scan_at: datetime | None = None
-        self._context_store = context_store
+
+    def _get_all_content_dirs(self) -> list[Path]:
+        """Return all directories to scan for markdown content."""
+        dirs: list[Path] = []
+
+        # Primary KB directory (saved URLs)
+        if self._content_dir.exists():
+            dirs.append(self._content_dir)
+
+        # Bookmark artifacts
+        bookmark_dir = self._vault_root / "sources" / "x-bookmarks"
+        if bookmark_dir.exists():
+            dirs.append(bookmark_dir)
+
+        # Memory artifacts
+        memories_dir = self._vault_root / "memories"
+        if memories_dir.exists():
+            dirs.append(memories_dir)
+
+        # Attachment artifacts
+        attachments_dir = self._vault_root / "sources" / "attachments"
+        if attachments_dir.exists():
+            dirs.append(attachments_dir)
+
+        return dirs
 
     def list_markdown_files(self) -> list[Path]:
-        """Return sorted markdown files under configured KB directory."""
-        if not self._content_dir.exists():
-            return []
-        return sorted(path for path in self._content_dir.rglob("*.md") if path.is_file())
+        """Return sorted markdown files from all content directories."""
+        all_files: list[Path] = []
+
+        for content_dir in self._get_all_content_dirs():
+            files = [path for path in content_dir.rglob("*.md") if path.is_file()]
+            all_files.extend(files)
+
+        # Sort by path for deterministic ordering
+        return sorted(all_files)
 
     def index_all(self) -> KBIndexResult:
-        """Scan and index all markdown files."""
+        """Scan and index all markdown files from all sources."""
         return self.index_paths(self.list_markdown_files())
 
     def index_paths(self, paths: list[Path]) -> KBIndexResult:
@@ -110,6 +139,12 @@ class KBIndexer:
             return False
 
         url_original = parsed.metadata.get("url")
+        # For bookmarks, use tweet_url or source_unwound_url if available
+        if not url_original and parsed.metadata.get("source_type") == "bookmark":
+            url_original = parsed.metadata.get("source_unwound_url") or parsed.metadata.get(
+                "tweet_url"
+            )
+
         title = parsed.metadata.get("title") or _fallback_title(body, path)
         document_id = self._db.upsert_document(
             markdown_path=storage_path,
@@ -117,7 +152,7 @@ class KBIndexer:
             url_canonical=_canonicalize_url(url_original),
             title=title,
             domain=_extract_domain(url_original),
-            captured_at=parsed.metadata.get("captured_at"),
+            captured_at=parsed.metadata.get("captured_at") or parsed.metadata.get("created_at"),
             content_hash=content_hash,
             status="indexed",
             last_error=None,
@@ -136,18 +171,6 @@ class KBIndexer:
         ]
         self._db.replace_document_chunks(document_id, chunks)
         self._db.upsert_fts_for_document(document_id)
-        if self._context_store is not None:
-            try:
-                indexer = getattr(self._context_store, "index_kb_document_chunks", None)
-                if callable(indexer):
-                    indexer(document_id)
-            except Exception as error:  # pragma: no cover - defensive logging path
-                logger.warning(
-                    "kb_vector_index_failed",
-                    document_id=document_id,
-                    markdown_path=storage_path,
-                    error=str(error),
-                )
         return True
 
 

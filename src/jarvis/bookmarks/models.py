@@ -4,7 +4,7 @@ Defines data models for tweets and sync status.
 """
 
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -32,7 +32,7 @@ class Bookmark(BaseModel):
 
     tweet_id: str = Field(..., description="Tweet ID")
     author: Author
-    text: str = Field(..., description="Full tweet text")
+    text: str = Field(..., description="Full tweet text (original)")
     note_text: str | None = Field(None, description="User's private note on bookmark")
     created_at: datetime | None = Field(None, description="Tweet creation timestamp")
     bookmarked_at: datetime = Field(
@@ -46,6 +46,23 @@ class Bookmark(BaseModel):
         default_factory=list, description="Context annotations from X API"
     )
     raw_json: dict[str, Any] | None = Field(None, description="Raw API response")
+
+    # Normalized content fields (Phase 3 additions)
+    content_kind: Literal["article", "note_tweet", "post", "link_only", "media_only", "unknown"] = (
+        Field(default="unknown", description="Type of content in this bookmark")
+    )
+    content_title: str | None = Field(None, description="Title from article when available")
+    content_preview: str | None = Field(
+        None, description="Preview text from article when available"
+    )
+    content_text: str = Field(
+        default="", description="Canonical searchable text (article.plain_text > note_tweet > text)"
+    )
+    source_unwound_url: str | None = Field(None, description="Best resolved external/article URL")
+    artifact_path: str | None = Field(None, description="Local markdown artifact path")
+    content_hash: str | None = Field(
+        None, description="Hash of canonical content for change detection"
+    )
 
 
 class SyncStatus(BaseModel):

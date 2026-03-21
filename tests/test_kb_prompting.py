@@ -8,6 +8,7 @@ from jarvis.kb_retrieval import RetrievedChunk
 
 def _chunk(doc_id: int, chunk_index: int, title: str, source: str) -> RetrievedChunk:
     return RetrievedChunk(
+        chunk_id=doc_id * 1000 + chunk_index,
         document_id=doc_id,
         chunk_index=chunk_index,
         heading="Intro",

@@ -58,6 +58,7 @@ class BotBookmarksMixin:
             oauth_token_url=self.settings.x_oauth_token_url,
             api_timeout=self.settings.x_api_timeout,
             token_refresh_buffer_seconds=self.settings.x_token_refresh_buffer_seconds,
+            vault_root=self.settings.vault_root,
         )
 
         run_full_reconcile = self._should_run_weekly_reconcile()

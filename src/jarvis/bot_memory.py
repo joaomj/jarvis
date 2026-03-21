@@ -22,11 +22,7 @@ class BotMemoryMixin:
 
     def _initialize_memory_state(self) -> None:
         """Initialize vault-backed memory store."""
-        self.memory_store = MemoryStore(
-            self.db,
-            self.settings.vault_root,
-            context_store=self.context_store,
-        )
+        self.memory_store = MemoryStore(self.db, self.settings.vault_root)
 
     def _is_private_intent(self, text: str) -> bool:
         """Detect private-turn prefix markers."""
@@ -141,11 +137,14 @@ class BotMemoryMixin:
 
     async def _classify_memory_intent(
         self,
-        _user_id: int,
+        user_id: int,
         session_id: str,
         text: str,
     ) -> dict[str, object]:
         """Classify memory action using model understanding."""
+        selected_model = (
+            self.model_selector.get_model_for_user(user_id) if self.model_selector else None
+        )
         prompt = (
             "Classify whether this message asks to manage personal memory. Return JSON only with keys: "
             "action, payload, needs_confirmation, confirmation_question.\n"
@@ -155,7 +154,8 @@ class BotMemoryMixin:
         parts, _info = await self.opencode.send_message(
             session_id,
             prompt,
-            agent="dr-gate",
+            model=selected_model,
+            agent="classifier",
         )
         combined = "\n".join(part.get("text", "") for part in parts if part.get("type") == "text")
         parsed = _extract_json_payload(combined)

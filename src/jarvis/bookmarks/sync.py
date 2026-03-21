@@ -1,13 +1,14 @@
 """X bookmarks synchronization.
 
 Runs low-cost daily incremental sync and weekly full mirror reconcile.
-Supports bookmark folders via X API.
+Supports bookmark folders via X API and creates local markdown artifacts.
 """
 
 import json
 from datetime import UTC, date, datetime
 from typing import Any
 
+from jarvis.bookmark_artifact_store import BookmarkArtifactStore
 from jarvis.bookmarks.client import DEFAULT_X_API_BASE_URL, DEFAULT_X_OAUTH_TOKEN_URL, XAPIClient
 from jarvis.bookmarks.models import Bookmark
 from jarvis.database import Database
@@ -17,7 +18,7 @@ logger = get_logger(__name__)
 
 
 class BookmarkSync:
-    """Bookmark synchronization manager."""
+    """Bookmark synchronization manager with artifact generation."""
 
     def __init__(  # noqa: PLR0913
         self,
@@ -28,6 +29,7 @@ class BookmarkSync:
         oauth_token_url: str = DEFAULT_X_OAUTH_TOKEN_URL,
         api_timeout: float = 30.0,
         token_refresh_buffer_seconds: int = 300,
+        vault_root: str = "vault",
     ):
         """Initialize bookmark sync.
 
@@ -39,6 +41,7 @@ class BookmarkSync:
             oauth_token_url: OAuth 2.0 token endpoint URL.
             api_timeout: Request timeout in seconds.
             token_refresh_buffer_seconds: Seconds before expiry to refresh token.
+            vault_root: Root directory for vault artifacts.
         """
         self.db = db
         self.client = XAPIClient(
@@ -50,16 +53,18 @@ class BookmarkSync:
             api_timeout=api_timeout,
             token_refresh_buffer_seconds=token_refresh_buffer_seconds,
         )
+        self.artifact_store = BookmarkArtifactStore(db, vault_root)
 
-    async def sync_bookmarks(  # noqa: PLR0912
+    async def sync_bookmarks(  # noqa: PLR0912, PLR0915
         self,
         full_sync: bool = False,
         sync_folders: bool = False,
     ) -> dict[str, Any]:
-        """Sync bookmarks from X to local database.
+        """Sync bookmarks from X to local database and create artifacts.
 
         For full_sync=True, reconciles local DB to match remote state.
         Folder assignments can be synced separately to reduce API costs.
+        Creates markdown artifacts for all bookmarks under vault/sources/x-bookmarks/.
 
         Args:
             full_sync: If True, download ALL bookmarks (ignore since_id).
@@ -123,13 +128,15 @@ class BookmarkSync:
                         count=len(folder_tweet_ids),
                     )
 
-            # Step 3: Save bookmarks and compute true new_count
+            # Step 3: Save bookmarks and create artifacts
             logger.info("saving_bookmarks", total=len(all_bookmarks))
             new_count = 0
+            artifact_count = 0
             for tweet_id, bookmark in all_bookmarks.items():
                 if tweet_id not in existing_ids:
                     new_count += 1
 
+                # Save to database
                 self.db.save_bookmark(
                     tweet_id=bookmark.tweet_id,
                     author_username=bookmark.author.username,
@@ -148,7 +155,18 @@ class BookmarkSync:
                     urls_expanded=json.dumps(bookmark.urls_expanded),
                     context_annotations=json.dumps(bookmark.context_annotations),
                     raw_json=json.dumps(bookmark.raw_json) if bookmark.raw_json else "{}",
+                    # Normalized content fields (Phase 3)
+                    content_kind=bookmark.content_kind,
+                    content_title=bookmark.content_title,
+                    content_preview=bookmark.content_preview,
+                    content_text=bookmark.content_text,
+                    source_unwound_url=bookmark.source_unwound_url,
                 )
+
+                # Create artifact
+                artifact_path = self.artifact_store.create_or_update_artifact(bookmark)
+                if artifact_path:
+                    artifact_count += 1
 
             # Step 4: Full mirror prune
             deleted_count = 0
@@ -183,6 +201,7 @@ class BookmarkSync:
                 total_bookmarks=total_count,
                 deleted_bookmarks=deleted_count,
                 folder_count=folder_count,
+                artifacts_created=artifact_count,
                 full_sync=full_sync,
                 folder_sync=sync_folders,
             )
@@ -193,6 +212,7 @@ class BookmarkSync:
                 "total_bookmarks": total_count,
                 "deleted_bookmarks": deleted_count,
                 "folder_count": folder_count,
+                "artifacts_created": artifact_count,
                 "full_sync": full_sync,
                 "folder_sync": sync_folders,
             }

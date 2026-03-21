@@ -35,6 +35,7 @@ STOPWORDS = {
 class RetrievedChunk:
     """One retrieved KB chunk with document metadata."""
 
+    chunk_id: int
     document_id: int
     chunk_index: int
     heading: str | None
@@ -95,6 +96,7 @@ def retrieve_chunks(
 
         selected.append(
             RetrievedChunk(
+                chunk_id=_as_int(row.get("chunk_id")),
                 document_id=doc_id,
                 chunk_index=_as_int(row.get("chunk_index")),
                 heading=_as_optional_str(row.get("heading")),

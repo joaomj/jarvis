@@ -33,7 +33,7 @@ def _memory_decision_response(
                 ),
             }
         ],
-        "info": {"modelID": "gpt-4o", "providerID": "openai", "agent": "dr-gate"},
+        "info": {"modelID": "gpt-4o", "providerID": "openai", "agent": "classifier"},
     }
 
 

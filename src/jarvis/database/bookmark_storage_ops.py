@@ -32,6 +32,13 @@ class BookmarkStorageOperations(DatabaseCore):
         urls_expanded: str,
         context_annotations: str,
         raw_json: str,
+        content_kind: str = "unknown",
+        content_title: str | None = None,
+        content_preview: str | None = None,
+        content_text: str = "",
+        source_unwound_url: str | None = None,
+        artifact_path: str | None = None,
+        content_hash: str | None = None,
     ) -> None:
         """Save a bookmark row with upsert semantics."""
         try:
@@ -42,8 +49,11 @@ class BookmarkStorageOperations(DatabaseCore):
                        (tweet_id, author_username, author_name, author_verified, text,
                         note_text, created_at, tweet_url, like_count, retweet_count,
                         reply_count, impression_count, bookmark_count, media_urls,
-                        urls_expanded, context_annotations, raw_json, last_synced_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                        urls_expanded, context_annotations, raw_json, last_synced_at,
+                        content_kind, content_title, content_preview, content_text,
+                        source_unwound_url, artifact_path, content_hash)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP,
+                               ?, ?, ?, ?, ?, ?, ?)
                        ON CONFLICT(tweet_id) DO UPDATE SET
                            author_username=excluded.author_username,
                            author_name=excluded.author_name,
@@ -61,7 +71,14 @@ class BookmarkStorageOperations(DatabaseCore):
                            urls_expanded=excluded.urls_expanded,
                            context_annotations=excluded.context_annotations,
                            raw_json=excluded.raw_json,
-                           last_synced_at=CURRENT_TIMESTAMP""",
+                           last_synced_at=CURRENT_TIMESTAMP,
+                           content_kind=excluded.content_kind,
+                           content_title=excluded.content_title,
+                           content_preview=excluded.content_preview,
+                           content_text=excluded.content_text,
+                           source_unwound_url=excluded.source_unwound_url,
+                           artifact_path=excluded.artifact_path,
+                           content_hash=excluded.content_hash""",
                     (
                         tweet_id,
                         author_username,
@@ -80,6 +97,13 @@ class BookmarkStorageOperations(DatabaseCore):
                         urls_expanded,
                         context_annotations,
                         raw_json,
+                        content_kind,
+                        content_title,
+                        content_preview,
+                        content_text,
+                        source_unwound_url,
+                        artifact_path,
+                        content_hash,
                     ),
                 )
         except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as error:
@@ -138,7 +162,8 @@ class BookmarkStorageOperations(DatabaseCore):
                     """SELECT tweet_id, author_username, author_name, author_verified,
                               text, note_text, created_at, bookmarked_at, tweet_url,
                               like_count, retweet_count, reply_count, impression_count,
-                              bookmark_count, media_urls, urls_expanded
+                              bookmark_count, media_urls, urls_expanded, content_kind,
+                              content_title, content_preview, content_text, source_unwound_url
                        FROM x_bookmarks
                        WHERE bookmarked_at >= ? AND bookmarked_at <= ?
                        ORDER BY bookmarked_at DESC""",
@@ -164,7 +189,9 @@ class BookmarkStorageOperations(DatabaseCore):
                     """SELECT tweet_id, author_username, author_name, author_verified,
                               text, note_text, created_at, bookmarked_at, tweet_url,
                               like_count, retweet_count, reply_count, impression_count,
-                              bookmark_count, media_urls, urls_expanded, raw_json
+                              bookmark_count, media_urls, urls_expanded, raw_json,
+                              content_kind, content_title, content_preview, content_text,
+                              source_unwound_url, artifact_path, content_hash
                        FROM x_bookmarks
                        WHERE tweet_id = ?""",
                     (tweet_id,),
@@ -177,3 +204,23 @@ class BookmarkStorageOperations(DatabaseCore):
         except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as error:
             logger.warning("get_bookmark_by_id_failed", tweet_id=tweet_id, error=str(error))
             return None
+
+    def update_bookmark_artifact(
+        self,
+        tweet_id: str,
+        artifact_path: str,
+        content_hash: str,
+    ) -> None:
+        """Update bookmark with artifact path and content hash."""
+        try:
+            with sqlite3.connect(self.db_path) as conn:
+                conn.execute("PRAGMA foreign_keys = ON")
+                conn.execute(
+                    """UPDATE x_bookmarks
+                       SET artifact_path = ?, content_hash = ?
+                       WHERE tweet_id = ?""",
+                    (artifact_path, content_hash, tweet_id),
+                )
+        except (sqlite3.OperationalError, sqlite3.IntegrityError, sqlite3.DatabaseError) as error:
+            logger.error("update_bookmark_artifact_failed", tweet_id=tweet_id, error=str(error))
+            raise

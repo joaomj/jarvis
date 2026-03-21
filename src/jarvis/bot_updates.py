@@ -8,6 +8,7 @@ from typing import Any
 
 from telegram import Update
 
+from jarvis.command_router import is_command_blocked
 from jarvis.logging_config import get_logger
 from jarvis.opencode_client import OpenCodeError
 from jarvis.utils import is_url_only
@@ -18,7 +19,7 @@ logger = get_logger(__name__)
 class BotUpdateMixin:
     """Methods that process inbound Telegram updates."""
 
-    async def _process_input(  # noqa: PLR0911
+    async def _process_input(
         self,
         update: Update,
         user_id: int,
@@ -38,9 +39,6 @@ class BotUpdateMixin:
         if await self.events.handle_interaction_input(update, user_id, processed_text):
             return None
 
-        if await self._maybe_handle_deep_research(update, user_id, session_id, processed_text):
-            return None
-
         if await self._handle_memory_intent(update, user_id, session_id, processed_text):
             return None
 
@@ -48,72 +46,62 @@ class BotUpdateMixin:
             raise RuntimeError("OpenCode not initialized")
 
         if processed_text.startswith("/") or processed_text.startswith("!"):
-            parts = processed_text[1:].split(maxsplit=1)
-            command = parts[0]
-            arguments = parts[1] if len(parts) > 1 else ""
+            return await self._process_command(update, user_id, session_id, processed_text)
 
-            # Check if command is blocked
-            from jarvis.command_router import is_command_blocked
+        return await self._process_regular_message(
+            update, user_id, session_id, processed_text, is_private
+        )
 
-            block_reason = is_command_blocked(command)
-            if block_reason:
-                await self._send_feedback_message(
-                    update,
-                    user_id,
-                    block_reason,
-                    source="command",
-                    prompt_text=f"[command] {command}",
-                    parse_mode="HTML",
-                )
-                return None
+    async def _process_command(
+        self,
+        update: Update,
+        user_id: int,
+        session_id: str,
+        processed_text: str,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
+        """Process command messages."""
+        parts = processed_text[1:].split(maxsplit=1)
+        command = parts[0]
+        arguments = parts[1] if len(parts) > 1 else ""
 
-            response_parts, info = await self.opencode.send_command(session_id, command, arguments)
-
-            # Sync session with SessionManager after /new command
-            if command == "new" and self.session_manager:
-                new_session_id = self._extract_session_id_from_new_response(response_parts)
-                if new_session_id:
-                    self.session_manager.set_session(user_id, new_session_id)
-                    logger.info(
-                        "session_synced_after_new_command",
-                        new_session_id=new_session_id,
-                        user_id=user_id,
-                    )
-        else:
-            if self.events.has_pending_prompt(session_id):
-                await self._send_feedback_message(
-                    update,
-                    user_id,
-                    "I am still processing your previous request. Please wait for completion.",
-                    source="status",
-                    prompt_text=processed_text,
-                )
-                return None
-
-            await self.opencode.prompt_async(session_id, processed_text)
-            self.events.register_pending_prompt(
-                session_id=session_id,
-                user_id=user_id,
-                chat_id=update.effective_message.chat_id,
-                in_message_id=update.effective_message.message_id,
-                prompt_text=processed_text,
-                session_title=f"jarvis-session-{session_id[:8]}",
-                is_private=is_private,
+        block_reason = is_command_blocked(command)
+        if block_reason:
+            await self._send_feedback_message(
+                update,
+                user_id,
+                block_reason,
+                source="command",
+                prompt_text=f"[command] {command}",
+                parse_mode="HTML",
             )
-            if is_private:
-                await update.effective_message.reply_text(
-                    "Private request received. I will reply without storing this turn."
-                )
-            else:
-                await self._send_feedback_message(
-                    update,
-                    user_id,
-                    "Working on it... I will send the full response when OpenCode finishes.",
-                    source="status",
-                    prompt_text=processed_text,
-                )
             return None
 
+        response_parts, info = await self.opencode.send_command(session_id, command, arguments)
+
+        if command == "new" and self.session_manager:
+            await self._sync_new_session(user_id, response_parts)
+
+        return self._prepare_command_response(response_parts, info, session_id, user_id)
+
+    async def _sync_new_session(self, user_id: int, response_parts: list[dict[str, Any]]) -> None:
+        """Sync session with SessionManager after /new command."""
+        new_session_id = self._extract_session_id_from_new_response(response_parts)
+        if new_session_id:
+            self.session_manager.set_session(user_id, new_session_id)
+            logger.info(
+                "session_synced_after_new_command",
+                new_session_id=new_session_id,
+                user_id=user_id,
+            )
+
+    def _prepare_command_response(
+        self,
+        response_parts: list[dict[str, Any]],
+        info: dict[str, Any],
+        session_id: str,
+        user_id: int,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        """Prepare and log command response."""
         content_text = "\n".join(
             p.get("text", "") for p in response_parts if p.get("type") == "text"
         )
@@ -131,12 +119,54 @@ class BotUpdateMixin:
 
         return response_parts, info
 
+    async def _process_regular_message(
+        self,
+        update: Update,
+        user_id: int,
+        session_id: str,
+        processed_text: str,
+        is_private: bool,
+    ) -> None:
+        """Process regular (non-command) messages."""
+        if self.events.has_pending_prompt(session_id):
+            await self._send_feedback_message(
+                update,
+                user_id,
+                "I am still processing your previous request. Please wait for completion.",
+                source="status",
+                prompt_text=processed_text,
+            )
+            return None
+
+        await self.opencode.prompt_async(session_id, processed_text)
+        self.events.register_pending_prompt(
+            session_id=session_id,
+            user_id=user_id,
+            chat_id=update.effective_message.chat_id,
+            in_message_id=update.effective_message.message_id,
+            prompt_text=processed_text,
+            session_title=f"jarvis-session-{session_id[:8]}",
+            is_private=is_private,
+        )
+
+        if is_private:
+            await update.effective_message.reply_text(
+                "Private request received. I will reply without storing this turn."
+            )
+        else:
+            await self._send_feedback_message(
+                update,
+                user_id,
+                "Working on it... I will send the full response when OpenCode finishes.",
+                source="status",
+                prompt_text=processed_text,
+            )
+        return None
+
     async def _handle_update(self, update: Update) -> None:  # noqa: PLR0911, PLR0912
         """Process single update from polling."""
         if update.callback_query:
             if await self.events.handle_callback(update):
-                return
-            if await self._handle_research_callback(update):
                 return
             await self._handle_feedback_callback(update)
             return

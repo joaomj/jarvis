@@ -79,8 +79,4 @@ docker-compose.override.yml
 .p12
 
 # Misc
-.opencode/plans
-
-# Temporary planning files
-*_PLAN.md
-*_IMPLEMENTATION_PLAN.md
+vault/

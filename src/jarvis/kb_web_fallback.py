@@ -19,12 +19,20 @@ class _OpenCodeLike(Protocol):
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]: ...
 
 
+class _ModelSelectorLike(Protocol):
+    def get_model_for_user(self, user_id: int) -> str | None: ...
+
+
 async def build_web_fallback_answer(
     opencode: _OpenCodeLike,
+    model_selector: _ModelSelectorLike | None,
+    user_id: int,
     session_id: str,
     question: str,
 ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
     """Return sourced web answer tuple or None when insufficient."""
+    selected_model = model_selector.get_model_for_user(user_id) if model_selector else None
+
     discovery_prompt = (
         "Find high-reputation web sources for this question and return JSON only with key 'sources'.\n"
         "Each source item must include: title, url, why_relevant.\n"
@@ -33,8 +41,8 @@ async def build_web_fallback_answer(
     source_parts, _source_info = await opencode.send_message(
         session_id,
         discovery_prompt,
-        model=None,
-        agent="dr-websearch-highrep",
+        model=selected_model,
+        agent="web-search",
     )
     source_text = "\n".join(
         part.get("text", "") for part in source_parts if part.get("type") == "text"
@@ -54,8 +62,8 @@ async def build_web_fallback_answer(
     answer_parts, answer_info = await opencode.send_message(
         session_id,
         synthesis_prompt,
-        model=None,
-        agent="dr-editor-integrator",
+        model=selected_model,
+        agent="synthesizer",
     )
     answer_text = "\n".join(
         part.get("text", "") for part in answer_parts if part.get("type") == "text"

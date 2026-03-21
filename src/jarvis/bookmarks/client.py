@@ -13,7 +13,7 @@ from jarvis.logging_config import get_logger
 
 logger = get_logger(__name__)
 
-DEFAULT_X_API_BASE_URL = "https://api.twitter.com/2"
+DEFAULT_X_API_BASE_URL = "https://api.x.com/2"
 DEFAULT_X_OAUTH_TOKEN_URL = "https://api.x.com/2/oauth2/token"  # noqa: S105
 
 
