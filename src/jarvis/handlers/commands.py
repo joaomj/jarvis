@@ -18,7 +18,7 @@ async def handle_intercept_command(cmd: str, args: str, user_id: int, bot: "Jarv
     """Handle intercepted OpenCode commands.
 
     Args:
-        cmd: Command name (models, new, sessions)
+        cmd: Command name (models, new, sessions, recall)
         args: Command arguments
         user_id: Telegram user ID
         bot: JarvisBot instance
@@ -26,10 +26,13 @@ async def handle_intercept_command(cmd: str, args: str, user_id: int, bot: "Jarv
     Returns:
         Response message for user
     """
+    from jarvis.handlers.context import handle_recall  # noqa: PLC0415
+
     handlers = {
         "models": _handle_models,
         "new": _handle_new_session,
         "sessions": _handle_list_sessions,
+        "recall": lambda a, _u, b: handle_recall(a, b),
     }
 
     handler = handlers.get(cmd)

@@ -401,10 +401,10 @@ User Command (Telegram) - "/recall what did I save about machine learning?"
 │  OpenCode Server │             │   Vault Search     │
 │                  │             │    (via /recall)   │
 │ - LLM inference  │             │                    │
-│ - File ops      │             │ - BM25 retrieval   │
-│ - Git ops      │             │ - All vault content│
-│ - Bash cmds    │             └────────┬───────────┘
-└──────────────────┘                      │
+│ - File ops      │             │ - Native hybrid    │
+│ - Git ops      │             │   retrieval        │
+│ - Bash cmds    │             │ - FTS5 + sqlite-vec│
+└──────────────────┘             └────────┬───────────┘
        │                                  │
        │ X Bookmarks                      ▼
        ▼                          ┌────────────────────┐
@@ -629,6 +629,29 @@ Jarvis parses `provider/model` strings (e.g., `anthropic/claude-sonnet`) and con
 - `idx_bookmarks_created_at` on `x_bookmarks(created_at)` - Fast tweet creation queries
 - `idx_bookmark_folders_tweet_id` on `x_bookmark_folder_assignments(tweet_id)` - Fast export by tweet
 - `idx_bookmark_folders_folder_id` on `x_bookmark_folder_assignments(folder_id)` - Fast export by folder
+
+### Native Context Retrieval
+
+**HOW**: Jarvis performs hybrid retrieval locally with SQLite FTS5 and sqlite-vec.
+
+**WHY**:
+- Single-user assistant does not need an external retrieval daemon.
+- Keeps retrieval path Python-first and local-first.
+- Enables semantic and lexical matching in one pipeline.
+
+**WHAT**:
+- Semantic embeddings generated with BGE-M3 (`sentence-transformers`).
+- Chunk-level KB embeddings indexed into sqlite-vec.
+- Memory embeddings indexed on write.
+- `/recall` fuses lexical and semantic ranks with RRF.
+- One-hop context links improve related result recall.
+
+**WHERE**:
+- Context search/index: `src/jarvis/context_store.py`
+- Embeddings: `src/jarvis/embeddings.py`
+- Recall handler: `src/jarvis/handlers/context.py`
+- Memory indexing hook: `src/jarvis/memory_store.py`
+- KB chunk indexing hook: `src/jarvis/kb_indexer.py`
 
 ### Error Handling Strategy
 

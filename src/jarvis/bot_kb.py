@@ -32,6 +32,7 @@ class BotKBMixin:
             db=self.db,
             content_dir=str(content_dir),
             chunk_size_chars=chunk_size_chars,
+            context_store=self.context_store,
         )
 
     def _run_kb_startup_scan(self) -> None:

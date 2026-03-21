@@ -108,7 +108,7 @@ SQLite remains for storage; BM25 provides better lexical retrieval:
 
 - BM25 for keyword search (Phase 7.1).
 - Optional: sentence-transformers embeddings for semantic search (Phase 7.2).
-- Optional: qmd integration for full hybrid search (Phase 7.3).
+- Optional: native hybrid retrieval tuning (Phase 7.3).
 
 ### Deterministic retrieval and prompt injection
 
@@ -225,17 +225,15 @@ If BM25 alone shows consistent retrieval misses for semantic queries:
 
 - Add sentence-transformers embeddings
 - Hybrid retrieval: BM25 (lexical) + embeddings (semantic)
-- Fallback: If embeddings insufficient, try qmd integration
+- Fallback: If embeddings are insufficient, tune native rank fusion and thresholds
 
-### Phase 7.3: Consider qmd (If Still Needed)
+### Phase 7.3: Improve Native Hybrid Search (If Still Needed)
 
-qmd (https://github.com/tobi/qmd) provides production-grade hybrid search:
+If Phase 7.2 still shows retrieval gaps:
 
-- FTS + vectors + reranking
-- Adds Node.js dependency
-- Only integrate if Phase 7.2 still shows retrieval gaps
-
-Reference: https://github.com/tobi/qmd
+- Tune lexical/semantic rank fusion weights and thresholds
+- Add optional lightweight reranking in Python stack
+- Keep local-first, Python-first retrieval path
 
 ## PDF Extraction Strategy
 
@@ -301,12 +299,12 @@ Acceptance criteria:
 - Semantic queries return relevant results ("articles about distributed systems")
 - Falls back gracefully when embeddings unavailable
 
-#### Phase 7.3: Consider qmd (If Still Needed)
+#### Phase 7.3: Improve Native Hybrid Search (If Still Needed)
 
 Acceptance criteria:
 
-- qmd integrated as retrieval backend
-- Hybrid search (FTS + vectors + rerank) working
+- Native hybrid search tuned for improved precision/recall
+- Hybrid search (FTS + vectors + rank fusion tuning) working
 - Performance acceptable for vault/ size
 
 ### Phase 8: PDF Ingestion via OpenCode Commands
@@ -438,7 +436,7 @@ Documentation for three approaches:
 
 7. **Phase 7.2** - Semantic search (only if BM25 insufficient)
 8. **Phase 10.2** - Model visibility
-9. **Phase 7.3** - qmd integration (only if hybrid still insufficient)
+9. **Phase 7.3** - native hybrid tuning (only if needed)
 
 ## Risks and Tradeoffs
 
@@ -455,7 +453,7 @@ Additional deep research tradeoffs:
 ## External References
 
 - BM25 (Python): https://pypi.org/project/BM25/
-- qmd (local hybrid search, context tree): https://github.com/tobi/qmd
+- sqlite-vec (local vector search): https://github.com/asg017/sqlite-vec
 - OpenCode Commands: https://opencode.ai/docs/commands/
 - Vercel (filesystem + bash for agents): https://vercel.com/blog/how-to-build-agents-with-filesystems-and-bash
 - Vercel (AGENTS.md index outperforms skills): https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals

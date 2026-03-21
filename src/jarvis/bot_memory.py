@@ -22,7 +22,11 @@ class BotMemoryMixin:
 
     def _initialize_memory_state(self) -> None:
         """Initialize vault-backed memory store."""
-        self.memory_store = MemoryStore(self.db, self.settings.vault_root)
+        self.memory_store = MemoryStore(
+            self.db,
+            self.settings.vault_root,
+            context_store=self.context_store,
+        )
 
     def _is_private_intent(self, text: str) -> bool:
         """Detect private-turn prefix markers."""

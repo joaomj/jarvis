@@ -13,20 +13,38 @@ logger = get_logger(__name__)
 class MemoryOperations(DatabaseCore):
     """CRUD operations for curated memory entries."""
 
-    def create_memory_entry(
+    def create_memory_entry(  # noqa: PLR0913
         self,
         memory_key: str,
         content: str,
         markdown_path: str,
         tags_csv: str = "",
+        *,
+        title: str | None = None,
+        memory_type: str = "fact",
+        importance: float = 0.5,
+        is_permanent: bool = False,
     ) -> int:
         """Insert a memory entry and return row id."""
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.execute(
-                """INSERT INTO memory_entries (memory_key, content, markdown_path, tags_csv)
-                   VALUES (?, ?, ?, ?)""",
-                (memory_key, content, markdown_path, tags_csv),
+                """INSERT INTO memory_entries
+                   (memory_key, title, content, memory_type, importance, is_permanent,
+                    markdown_path, tags_csv)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    memory_key,
+                    title or memory_key,
+                    content,
+                    memory_type,
+                    importance,
+                    int(is_permanent),
+                    markdown_path,
+                    tags_csv,
+                ),
             )
+            if cursor.lastrowid is None:
+                raise sqlite3.IntegrityError("memory entry insert did not return rowid")
             return int(cursor.lastrowid)
 
     def search_active_memories(self, query: str, limit: int = 5) -> list[dict[str, object]]:
@@ -39,7 +57,8 @@ class MemoryOperations(DatabaseCore):
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.execute(
-                """SELECT id, memory_key, content, markdown_path, tags_csv, created_at
+                """SELECT id, memory_key, title, memory_type, content, markdown_path, tags_csv,
+                          created_at, importance, strength, is_permanent
                    FROM memory_entries
                    WHERE active = 1 AND (content LIKE ? OR tags_csv LIKE ? OR memory_key LIKE ?)
                    ORDER BY created_at DESC
@@ -48,12 +67,26 @@ class MemoryOperations(DatabaseCore):
             )
             return [dict(row) for row in cursor.fetchall()]
 
+    def get_memory_by_id(self, memory_id: int) -> dict[str, object] | None:
+        """Get one memory row by numeric id."""
+        with sqlite3.connect(self.db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            row = conn.execute(
+                """SELECT id, memory_key, title, memory_type, content, markdown_path, tags_csv,
+                          active, created_at, forgotten_at, importance, strength, is_permanent
+                   FROM memory_entries
+                   WHERE id = ?""",
+                (memory_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
     def get_memory_by_key(self, memory_key: str) -> dict[str, object] | None:
         """Get one memory row by key."""
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
-                """SELECT id, memory_key, content, markdown_path, tags_csv, active, created_at, forgotten_at
+                """SELECT id, memory_key, title, memory_type, content, markdown_path, tags_csv,
+                          active, created_at, forgotten_at, importance, strength, is_permanent
                    FROM memory_entries
                    WHERE memory_key = ?""",
                 (memory_key,),
@@ -101,7 +134,8 @@ class MemoryOperations(DatabaseCore):
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(
-                """SELECT id, memory_key, content, markdown_path, tags_csv, created_at
+                """SELECT id, memory_key, title, memory_type, content, markdown_path, tags_csv,
+                          created_at, importance, strength, is_permanent
                    FROM memory_entries
                    WHERE active = 1
                    ORDER BY created_at DESC
