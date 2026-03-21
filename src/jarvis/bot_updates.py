@@ -8,7 +8,6 @@ from typing import Any
 
 from telegram import Update
 
-from jarvis.command_router import route_command
 from jarvis.logging_config import get_logger
 from jarvis.opencode_client import OpenCodeError
 from jarvis.utils import is_url_only
@@ -53,12 +52,15 @@ class BotUpdateMixin:
             command = parts[0]
             arguments = parts[1] if len(parts) > 1 else ""
 
-            handled_locally, result = await route_command(command, arguments, user_id, self)
-            if handled_locally:
+            # Check if command is blocked
+            from jarvis.command_router import is_command_blocked
+
+            block_reason = is_command_blocked(command)
+            if block_reason:
                 await self._send_feedback_message(
                     update,
                     user_id,
-                    result,
+                    block_reason,
                     source="command",
                     prompt_text=f"[command] {command}",
                     parse_mode="HTML",
