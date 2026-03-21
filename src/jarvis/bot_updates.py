@@ -3,6 +3,7 @@
 # mypy: ignore-errors
 from __future__ import annotations
 
+import re
 from typing import Any
 
 from telegram import Update
@@ -65,6 +66,17 @@ class BotUpdateMixin:
                 return None
 
             response_parts, info = await self.opencode.send_command(session_id, command, arguments)
+
+            # Sync session with SessionManager after /new command
+            if command == "new" and self.session_manager:
+                new_session_id = self._extract_session_id_from_new_response(response_parts)
+                if new_session_id:
+                    self.session_manager.set_session(user_id, new_session_id)
+                    logger.info(
+                        "session_synced_after_new_command",
+                        new_session_id=new_session_id,
+                        user_id=user_id,
+                    )
         else:
             if self.events.has_pending_prompt(session_id):
                 await self._send_feedback_message(
@@ -197,3 +209,31 @@ class BotUpdateMixin:
             )
         await update.effective_message.reply_text(status)
         return True
+
+    def _extract_session_id_from_new_response(
+        self, response_parts: list[dict[str, Any]]
+    ) -> str | None:
+        """Extract new session ID from /new command response.
+
+        Args:
+            response_parts: Response parts from OpenCode send_command
+
+        Returns:
+            New session ID if found, None otherwise
+        """
+        for part in response_parts:
+            if part.get("type") == "text":
+                text = part.get("text", "")
+                # Look for session ID pattern in response
+                # Typical format: "Created new session: <session_id>" or just the ID
+                # Match common session ID patterns (UUID-like or hash strings)
+                match = re.search(
+                    r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", text
+                )
+                if match:
+                    return match.group(0)
+                # Also try to find any long alphanumeric string that could be a session ID
+                match = re.search(r"\b([a-f0-9]{24,32})\b", text)
+                if match:
+                    return match.group(1)
+        return None

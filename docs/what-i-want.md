@@ -109,7 +109,7 @@ From all those cases, the most urgent i want to solve is the one about summarizi
 - [Securely indexing large codebases](https://cursor.com/blog/secure-codebase-indexing)
 - [Dynamic context discovery](https://cursor.com/blog/dynamic-context-discovery)
 - [How to build agents with filesystems and bash](https://vercel.com/blog/how-to-build-agents-with-filesystems-and-bash)
-- [qmd - mini cli search for docs and knowledge bases](https://github.com/tobi/qmd)
+- [sqlite-vec - local vector search for SQLite](https://github.com/asg017/sqlite-vec)
 - [Oops, You Wrote a Database](https://dx.tips/oops-database)
 - [building the brain logic of ai agents : a beginner's guide](https://x.com/sharpeye_wnl/status/2017110571460784451)
 - [Build Agents That Learn](https://x.com/ashpreetbedi/status/2016318096772936159)

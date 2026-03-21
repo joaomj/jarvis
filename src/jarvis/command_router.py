@@ -15,27 +15,6 @@ if TYPE_CHECKING:
 
 logger = get_logger("command_router")
 
-# OpenCode commands that pass through directly
-OPENCODE_PASS_THROUGH = {
-    "compact",
-    "summarize",
-    "details",
-    "export",
-    "help",
-    "init",
-    "redo",
-    "share",
-    "thinking",
-    "undo",
-    "unshare",
-    "connect",
-    "save",
-    "recall",
-    "models",
-    "new",
-    "sessions",
-}
-
 # Commands blocked in Telegram (require TUI)
 BLOCKED_COMMANDS = {
     "exit": "Exit requires the TUI interface",
@@ -87,7 +66,7 @@ async def route_command(
         result = await _handle_bridge_native(command, arguments, user_id, bot)
         return (True, result)
 
-    # Everything else passes through to OpenCode
+    # All other commands pass through to OpenCode
     return (False, [])
 
 

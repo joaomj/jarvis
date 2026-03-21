@@ -15,10 +15,14 @@ from jarvis.bot_opencode import BotOpenCodeMixin
 from jarvis.bot_research import BotResearchMixin
 from jarvis.bot_updates import BotUpdateMixin
 from jarvis.config import Settings
+from jarvis.context_store import ContextStore
 from jarvis.database import Database
 from jarvis.event_processor import EventProcessor
 from jarvis.formatter import ResponseFormatter
+from jarvis.kb_indexer import KBIndexer
 from jarvis.logging_config import get_logger
+from jarvis.memory_store import MemoryStore
+from jarvis.models_manager import ModelsManager
 from jarvis.opencode_client import OpenCodeClient
 from jarvis.polling_engine import PollingEngine
 from jarvis.session_manager import SessionManager
@@ -50,12 +54,15 @@ class JarvisBot(
             message_content_max_length=settings.db_message_content_max_length,
             response_cleanup_days=settings.db_response_cleanup_days,
         )
-        self.memory_store = None
-        self.kb_indexer = None
+        self.context_store = ContextStore(self.db)
+        self.context_store.backfill_missing_embeddings()
+        self.memory_store: MemoryStore | None = None
+        self.kb_indexer: KBIndexer | None = None
         self._initialize_memory_state()
         self._initialize_research_state()
         self._initialize_kb_state()
         self.events = EventProcessor(self)
+        self.models = ModelsManager(settings.favorite_models_path)
         self._running = False
         self._health_probe_sent = False
         logger.info(
@@ -93,7 +100,6 @@ class JarvisBot(
             max_backoff_level=self.settings.polling_max_backoff_level,
             max_backoff_seconds=self.settings.polling_max_backoff_seconds,
         )
-        # Run KB startup scan in background to avoid blocking initialization
         self._kb_scan_task = asyncio.create_task(self._run_kb_startup_scan_async())
         logger.info("bot_application_initialized")
 

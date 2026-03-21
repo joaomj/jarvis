@@ -42,11 +42,19 @@ class ParsedMarkdown:
 class KBIndexer:
     """Indexes markdown documents from `.jarvis/url-saves` into SQLite tables."""
 
-    def __init__(self, db: Database, content_dir: str, chunk_size_chars: int) -> None:
+    def __init__(
+        self,
+        db: Database,
+        content_dir: str,
+        chunk_size_chars: int,
+        *,
+        context_store: object | None = None,
+    ) -> None:
         self._db = db
         self._content_dir = Path(content_dir)
         self._chunk_size_chars = chunk_size_chars
         self._last_scan_at: datetime | None = None
+        self._context_store = context_store
 
     def list_markdown_files(self) -> list[Path]:
         """Return sorted markdown files under configured KB directory."""
@@ -128,6 +136,18 @@ class KBIndexer:
         ]
         self._db.replace_document_chunks(document_id, chunks)
         self._db.upsert_fts_for_document(document_id)
+        if self._context_store is not None:
+            try:
+                indexer = getattr(self._context_store, "index_kb_document_chunks", None)
+                if callable(indexer):
+                    indexer(document_id)
+            except Exception as error:  # pragma: no cover - defensive logging path
+                logger.warning(
+                    "kb_vector_index_failed",
+                    document_id=document_id,
+                    markdown_path=storage_path,
+                    error=str(error),
+                )
         return True
 
 
