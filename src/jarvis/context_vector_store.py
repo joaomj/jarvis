@@ -111,7 +111,9 @@ def semantic_candidates(
                 """SELECT ce.entry_type, ce.entry_id, cv.distance
                    FROM context_vec cv
                    JOIN context_embeddings ce ON ce.id = cv.rowid
+                   LEFT JOIN kb_chunks kc ON kc.id = ce.entry_id AND ce.entry_type = 'kb_chunk'
                    WHERE cv.embedding MATCH ? AND k = ?
+                     AND (ce.entry_type != 'kb_chunk' OR kc.id IS NOT NULL)
                    ORDER BY cv.distance ASC""",
                 (_serialize_embedding(query_embedding), limit),
             ).fetchall()

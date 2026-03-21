@@ -31,7 +31,7 @@ def _load_model() -> Any | None:
     try:
         if SentenceTransformer is None:
             raise RuntimeError("sentence-transformers is not available")
-        allow_download = os.getenv("JARVIS_EMBEDDINGS_DOWNLOAD", "0") == "1"
+        allow_download = os.getenv("JARVIS_EMBEDDINGS_DOWNLOAD", "1") == "1"
         model = SentenceTransformer(EMBEDDING_MODEL_NAME, local_files_only=not allow_download)
         logger.info("embedding_model_loaded", model=EMBEDDING_MODEL_NAME)
         return model
