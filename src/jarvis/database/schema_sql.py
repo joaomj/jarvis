@@ -179,30 +179,6 @@ CREATE TABLE IF NOT EXISTS kb_ingest_log (
     logged_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
-CREATE TABLE IF NOT EXISTS memory_entries (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    memory_key TEXT NOT NULL UNIQUE,
-    title TEXT,
-    content TEXT NOT NULL,
-    memory_type TEXT NOT NULL DEFAULT 'fact',
-    importance REAL NOT NULL DEFAULT 0.5,
-    strength REAL NOT NULL DEFAULT 1.0,
-    access_count INTEGER NOT NULL DEFAULT 0,
-    is_permanent INTEGER NOT NULL DEFAULT 0,
-    last_accessed TIMESTAMP,
-    markdown_path TEXT,
-    tags_csv TEXT,
-    active INTEGER NOT NULL DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    forgotten_at TIMESTAMP
-);
-
-CREATE INDEX IF NOT EXISTS idx_memory_entries_active_created_at
-ON memory_entries(active, created_at);
-
-CREATE INDEX IF NOT EXISTS idx_memory_entries_memory_key
-ON memory_entries(memory_key);
-
 CREATE TABLE IF NOT EXISTS context_embeddings (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     entry_type TEXT NOT NULL,
@@ -212,24 +188,6 @@ CREATE TABLE IF NOT EXISTS context_embeddings (
     UNIQUE(entry_type, entry_id)
 );
 
-CREATE TABLE IF NOT EXISTS context_links (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    source_type TEXT NOT NULL,
-    source_id INTEGER NOT NULL,
-    target_type TEXT NOT NULL,
-    target_id INTEGER NOT NULL,
-    relation TEXT NOT NULL DEFAULT 'related_to',
-    strength REAL NOT NULL DEFAULT 0.5,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(source_type, source_id, target_type, target_id)
-);
-
 CREATE INDEX IF NOT EXISTS idx_context_embeddings_entry
 ON context_embeddings(entry_type, entry_id);
-
-CREATE INDEX IF NOT EXISTS idx_context_links_source
-ON context_links(source_type, source_id);
-
-CREATE INDEX IF NOT EXISTS idx_context_links_target
-ON context_links(target_type, target_id);
 """

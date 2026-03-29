@@ -22,7 +22,6 @@ class DatabaseCore:
             conn.execute("PRAGMA foreign_keys = ON")
             conn.executescript(SCHEMA)
             self._migrate_sync_status_columns(conn)
-            self._migrate_memory_columns(conn)
             self._migrate_bookmark_content_columns(conn)
 
     def _migrate_sync_status_columns(self, conn: sqlite3.Connection) -> None:
@@ -35,30 +34,6 @@ class DatabaseCore:
 
         if "last_folders_sync_date" not in column_names:
             conn.execute("ALTER TABLE x_sync_status ADD COLUMN last_folders_sync_date TEXT")
-
-    def _migrate_memory_columns(self, conn: sqlite3.Connection) -> None:
-        """Backfill newer memory columns for existing databases."""
-        cursor = conn.execute("PRAGMA table_info(memory_entries)")
-        column_names = {str(row[1]) for row in cursor.fetchall()}
-
-        if "title" not in column_names:
-            conn.execute("ALTER TABLE memory_entries ADD COLUMN title TEXT")
-        if "memory_type" not in column_names:
-            conn.execute("ALTER TABLE memory_entries ADD COLUMN memory_type TEXT DEFAULT 'fact'")
-        if "importance" not in column_names:
-            conn.execute("ALTER TABLE memory_entries ADD COLUMN importance REAL DEFAULT 0.5")
-        if "strength" not in column_names:
-            conn.execute("ALTER TABLE memory_entries ADD COLUMN strength REAL DEFAULT 1.0")
-        if "access_count" not in column_names:
-            conn.execute("ALTER TABLE memory_entries ADD COLUMN access_count INTEGER DEFAULT 0")
-        if "is_permanent" not in column_names:
-            conn.execute("ALTER TABLE memory_entries ADD COLUMN is_permanent INTEGER DEFAULT 0")
-        if "last_accessed" not in column_names:
-            conn.execute("ALTER TABLE memory_entries ADD COLUMN last_accessed TIMESTAMP")
-
-        conn.execute(
-            "UPDATE memory_entries SET title = COALESCE(title, memory_key) WHERE title IS NULL"
-        )
 
     def _execute(
         self,

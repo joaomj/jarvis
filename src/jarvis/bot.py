@@ -4,15 +4,16 @@ from __future__ import annotations
 
 import asyncio
 
+from telegram import BotCommand
 from telegram.ext import Application
 
 from jarvis.bot_attachments import BotAttachmentsMixin
 from jarvis.bot_bookmarks import BotBookmarksMixin
 from jarvis.bot_feedback import BotFeedbackMixin
 from jarvis.bot_kb import BotKBMixin
-from jarvis.bot_memory import BotMemoryMixin
 from jarvis.bot_opencode import BotOpenCodeMixin
 from jarvis.bot_updates import BotUpdateMixin
+from jarvis.command_router import BLOCKED_COMMANDS
 from jarvis.config import Settings
 from jarvis.context_store import ContextStore
 from jarvis.database import Database
@@ -20,7 +21,6 @@ from jarvis.event_processor import EventProcessor
 from jarvis.formatter import ResponseFormatter
 from jarvis.kb_indexer import KBIndexer
 from jarvis.logging_config import get_logger
-from jarvis.memory_store import MemoryStore
 from jarvis.models_manager import ModelsManager
 from jarvis.opencode_client import OpenCodeClient
 from jarvis.polling_engine import PollingEngine
@@ -34,7 +34,6 @@ class JarvisBot(
     BotKBMixin,
     BotBookmarksMixin,
     BotAttachmentsMixin,
-    BotMemoryMixin,
     BotFeedbackMixin,
     BotOpenCodeMixin,
 ):
@@ -54,9 +53,7 @@ class JarvisBot(
         )
         self.context_store = ContextStore(self.db)
         self.context_store.backfill_missing_embeddings()
-        self.memory_store: MemoryStore | None = None
         self.kb_indexer: KBIndexer | None = None
-        self._initialize_memory_state()
         self._initialize_kb_state()
         self.events = EventProcessor(self)
         self.models = ModelsManager(settings.favorite_models_path)
@@ -98,6 +95,7 @@ class JarvisBot(
             max_backoff_seconds=self.settings.polling_max_backoff_seconds,
         )
         self._kb_scan_task = asyncio.create_task(self._run_kb_startup_scan_async())
+        await self._sync_commands_to_telegram()
         logger.info("bot_application_initialized")
 
     async def shutdown(self) -> None:
@@ -110,6 +108,27 @@ class JarvisBot(
     def _is_authorized(self, user_id: int) -> bool:
         """Check if user is authorized."""
         return self.db.is_user_allowed(user_id)
+
+    async def _sync_commands_to_telegram(self) -> None:
+        """Fetch commands from OpenCode and register in Telegram command menu."""
+        if not self.opencode or not self.app:
+            return
+        try:
+            commands = await self.opencode.list_commands()
+            bot_commands = []
+            for cmd in commands:
+                name = cmd.get("name", "")
+                if name in BLOCKED_COMMANDS:
+                    continue
+                description = cmd.get("description", "") or ""
+                bot_commands.append({"command": name, "description": description})
+
+            bot_commands.sort(key=lambda c: c["command"])
+            if bot_commands:
+                await self.app.bot.set_my_commands([BotCommand(**c) for c in bot_commands])
+                logger.info("telegram_commands_synced", count=len(bot_commands))
+        except Exception as error:
+            logger.warning("command_sync_failed", error=str(error))
 
     async def start(self) -> None:
         """Start bot with polling."""

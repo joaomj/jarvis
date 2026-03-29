@@ -8,16 +8,28 @@ from typing import Any
 
 from telegram import Update
 
+from jarvis.auto_retrieval import retrieve_context
 from jarvis.command_router import is_command_blocked
 from jarvis.logging_config import get_logger
 from jarvis.opencode_client import OpenCodeError
+from jarvis.session_utils import extract_session_id_from_new_response
 from jarvis.utils import is_url_only
 
 logger = get_logger(__name__)
 
+PRIVATE_PREFIX_RE = re.compile(r"^(?:<private>\s*|private:\s*|\/private\s+)", re.IGNORECASE)
+
 
 class BotUpdateMixin:
     """Methods that process inbound Telegram updates."""
+
+    def _is_private_intent(self, text: str) -> bool:
+        """Detect private-turn prefix markers."""
+        return bool(PRIVATE_PREFIX_RE.match(text.strip()))
+
+    def _strip_private_marker(self, text: str) -> str:
+        """Remove private prefix marker from user text."""
+        return PRIVATE_PREFIX_RE.sub("", text.strip(), count=1).strip()
 
     async def _process_input(
         self,
@@ -37,9 +49,6 @@ class BotUpdateMixin:
             return None
 
         if await self.events.handle_interaction_input(update, user_id, processed_text):
-            return None
-
-        if await self._handle_memory_intent(update, user_id, session_id, processed_text):
             return None
 
         if not self.opencode:
@@ -85,7 +94,7 @@ class BotUpdateMixin:
 
     async def _sync_new_session(self, user_id: int, response_parts: list[dict[str, Any]]) -> None:
         """Sync session with SessionManager after /new command."""
-        new_session_id = self._extract_session_id_from_new_response(response_parts)
+        new_session_id = extract_session_id_from_new_response(response_parts)
         if new_session_id:
             self.session_manager.set_session(user_id, new_session_id)
             logger.info(
@@ -138,7 +147,31 @@ class BotUpdateMixin:
             )
             return None
 
-        await self.opencode.prompt_async(session_id, processed_text)
+        system_context: str | None = None
+        if not is_private and self.context_store:
+            try:
+                opencode_db = str(
+                    __import__("pathlib").Path(self.settings.vault_root).expanduser()
+                    / "raw"
+                    / "opencode"
+                    / "opencode.db"
+                )
+                ctx = retrieve_context(
+                    self.context_store,
+                    opencode_db,
+                    processed_text,
+                )
+                if ctx.sources_used > 0:
+                    system_context = ctx.system_prefix
+                    logger.debug(
+                        "auto_context_retrieved",
+                        sources=ctx.sources_used,
+                        chars=len(ctx.system_prefix),
+                    )
+            except Exception as error:
+                logger.warning("auto_retrieval_failed", error=str(error))
+
+        await self.opencode.prompt_async(session_id, processed_text, system=system_context)
         self.events.register_pending_prompt(
             session_id=session_id,
             user_id=user_id,
@@ -241,31 +274,3 @@ class BotUpdateMixin:
             )
         await update.effective_message.reply_text(status)
         return True
-
-    def _extract_session_id_from_new_response(
-        self, response_parts: list[dict[str, Any]]
-    ) -> str | None:
-        """Extract new session ID from /new command response.
-
-        Args:
-            response_parts: Response parts from OpenCode send_command
-
-        Returns:
-            New session ID if found, None otherwise
-        """
-        for part in response_parts:
-            if part.get("type") == "text":
-                text = part.get("text", "")
-                # Look for session ID pattern in response
-                # Typical format: "Created new session: <session_id>" or just the ID
-                # Match common session ID patterns (UUID-like or hash strings)
-                match = re.search(
-                    r"[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}", text
-                )
-                if match:
-                    return match.group(0)
-                # Also try to find any long alphanumeric string that could be a session ID
-                match = re.search(r"\b([a-f0-9]{24,32})\b", text)
-                if match:
-                    return match.group(1)
-        return None
