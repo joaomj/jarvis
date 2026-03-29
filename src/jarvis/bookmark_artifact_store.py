@@ -1,6 +1,6 @@
 """Bookmark artifact generation for vault storage.
 
-Creates human-inspectable markdown artifacts for bookmarks under vault/sources/x-bookmarks/.
+Creates human-inspectable markdown artifacts for bookmarks under vault/raw/bookmarks/.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ class BookmarkArtifactStore:
     def __init__(self, db: Database, vault_root: str) -> None:
         self._db = db
         self._vault_root = Path(vault_root).expanduser()
-        self._bookmark_dir = self._vault_root / "sources" / "x-bookmarks"
+        self._bookmark_dir = self._vault_root / "raw" / "bookmarks"
         self._bookmark_dir.mkdir(parents=True, exist_ok=True)
 
     @property

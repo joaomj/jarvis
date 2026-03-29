@@ -123,7 +123,7 @@ class ModelsManager:
         models = self.get_models()
 
         if not models:
-            return "⚠️ No favorite models configured.\nCreate .jarvis/favorite_models.json"
+            return "⚠️ No favorite models configured.\nCreate vault/index/favorite_models.json"
 
         lines = []
         for i, model in enumerate(models, 1):

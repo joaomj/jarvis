@@ -25,8 +25,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from backfill_utils import fetch_all_bookmarks, generate_validation_report, parse_existing_bookmark
 
 from jarvis.bookmark_artifact_store import BookmarkArtifactStore
+from jarvis.context_store import ContextStore
 from jarvis.database import Database
-from jarvis.embedding_indexer import EmbeddingIndexer
 from jarvis.kb_indexer import KBIndexer
 from jarvis.logging_config import get_logger
 from jarvis.sync_health import SyncHealthChecker
@@ -167,16 +167,12 @@ def rebuild_indexes(
         )
 
         logger.info("generating_embeddings")
-        embedding_indexer = EmbeddingIndexer(db)
-        emb_result = embedding_indexer.index_missing_embeddings()
-        stats["chunks_embedded"] = emb_result.embeddings_generated
-        stats["embedding_errors"] = emb_result.errors
+        context_store = ContextStore(db)
+        context_store.backfill_missing_embeddings()
+        stats["chunks_embedded"] = -1
+        stats["embedding_errors"] = 0
 
-        logger.info(
-            "embeddings_complete",
-            generated=emb_result.embeddings_generated,
-            errors=emb_result.errors,
-        )
+        logger.info("embeddings_complete")
 
     except Exception as error:
         logger.error("rebuild_indexes_failed", error=str(error))
@@ -187,10 +183,12 @@ def rebuild_indexes(
 
 async def main():
     parser = argparse.ArgumentParser(description="Backfill and reindex bookmarks")
-    parser.add_argument("--db-path", default=".jarvis/jarvis.db", help="Path to SQLite database")
+    parser.add_argument(
+        "--db-path", default="vault/index/jarvis.db", help="Path to SQLite database"
+    )
     parser.add_argument("--vault-root", default="vault", help="Vault root directory")
     parser.add_argument(
-        "--kb-content-dir", default=".jarvis/url-saves", help="KB content directory"
+        "--kb-content-dir", default="vault/raw/url-saves", help="KB content directory"
     )
     parser.add_argument("--batch-size", type=int, default=100, help="Batch size for processing")
     parser.add_argument("--dry-run", action="store_true", help="Don't write changes")

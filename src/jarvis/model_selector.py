@@ -62,7 +62,7 @@ class ModelSelector:
         """
         model_count = self._models.get_count()
         if model_count == 0:
-            return "No favorite models configured in .jarvis/favorite_models.json"
+            return "No favorite models configured in vault/index/favorite_models.json"
 
         try:
             self._db.set_user_state(user_id, "awaiting_model_selection")

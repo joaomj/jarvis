@@ -41,7 +41,7 @@ class BotAttachmentsMixin:
         file_ext = Path(file_name).suffix.lower()
         captured_at = datetime.now(UTC)
 
-        source_root = Path(self.settings.vault_root).expanduser() / "sources" / "attachments"
+        source_root = Path(self.settings.vault_root).expanduser() / "raw" / "attachments"
         day_path = captured_at.strftime("%Y/%m/%d")
         raw_dir = source_root / "raw" / day_path
         md_dir = source_root / "indexed" / day_path

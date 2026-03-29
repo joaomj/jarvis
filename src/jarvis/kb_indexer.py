@@ -59,22 +59,14 @@ class KBIndexer:
         """Return all directories to scan for markdown content."""
         dirs: list[Path] = []
 
-        # Primary KB directory (saved URLs)
         if self._content_dir.exists():
             dirs.append(self._content_dir)
 
-        # Bookmark artifacts
-        bookmark_dir = self._vault_root / "sources" / "x-bookmarks"
+        bookmark_dir = self._vault_root / "raw" / "bookmarks"
         if bookmark_dir.exists():
             dirs.append(bookmark_dir)
 
-        # Memory artifacts
-        memories_dir = self._vault_root / "memories"
-        if memories_dir.exists():
-            dirs.append(memories_dir)
-
-        # Attachment artifacts
-        attachments_dir = self._vault_root / "sources" / "attachments"
+        attachments_dir = self._vault_root / "raw" / "attachments"
         if attachments_dir.exists():
             dirs.append(attachments_dir)
 

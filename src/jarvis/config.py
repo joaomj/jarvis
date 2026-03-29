@@ -44,15 +44,15 @@ class Settings(BaseSettings):
 
     # Database settings
     database_path: str = Field(
-        default=".jarvis/jarvis.db",
-        description="Path to SQLite database",
+        default="vault/index/jarvis.db",
+        description="Path to SQLite database (silver layer)",
     )
     enable_message_audit: bool = Field(
         default=True,
         description="Enable message audit logging",
     )
     favorite_models_path: str = Field(
-        default=".jarvis/favorite_models.json",
+        default="vault/index/favorite_models.json",
         description="Path to favorite models JSON file",
     )
 
@@ -124,7 +124,7 @@ class Settings(BaseSettings):
 
     # URL knowledge base settings
     kb_content_dir: str = Field(
-        default=".jarvis/url-saves",
+        default="vault/raw/url-saves",
         description="Directory containing saved markdown knowledge-base content",
     )
     kb_max_chunks_per_query: int = Field(
