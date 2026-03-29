@@ -33,6 +33,8 @@ env/
 *.db
 *.sqlite
 *.sqlite3
+data/
+vault/
 
 # Logs
 *.log
