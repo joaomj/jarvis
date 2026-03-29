@@ -10,7 +10,13 @@ import httpx
 from jarvis.exceptions import OpenCodeError
 from jarvis.logging_config import get_logger
 from jarvis.opencode_events import parse_sse_event_block
-from jarvis.opencode_request_helpers import post_boolean, send_with_payload
+from jarvis.opencode_questions import (
+    PermissionParams,
+    permission_reply,
+    question_reject,
+    question_reply,
+)
+from jarvis.opencode_request_helpers import send_with_payload
 from jarvis.opencode_response import parse_model_string, status_error_preview
 
 logger = get_logger(__name__)
@@ -179,6 +185,7 @@ class OpenCodeClient:
         text: str,
         model: str | None = None,
         agent: str | None = None,
+        system: str | None = None,
     ) -> None:
         """Send message asynchronously without waiting for final response."""
         payload: dict[str, Any] = {"parts": [{"type": "text", "text": text}]}
@@ -186,6 +193,8 @@ class OpenCodeClient:
             payload["model"] = parse_model_string(model)
         if agent:
             payload["agent"] = agent
+        if system:
+            payload["system"] = system
 
         try:
             response = await self.client.post(
@@ -257,44 +266,35 @@ class OpenCodeClient:
         answers: list[list[str]],
         directory: str | None = None,
     ) -> bool:
-        params = {"directory": directory} if directory else None
-        payload = {"answers": answers}
-        return await post_boolean(
+        return await question_reply(
             client=self.client,
             base_url=self.base_url,
-            endpoint=f"/question/{request_id}/reply",
-            payload=payload,
-            params=params,
-            error_prefix="Failed to reply to question",
+            request_id=request_id,
+            answers=answers,
+            directory=directory,
         )
+
+    async def list_commands(self) -> list[dict[str, Any]]:
+        try:
+            response = await self.client.get(f"{self.base_url}/command")
+            response.raise_for_status()
+            commands = response.json()
+            logger.info("commands_listed", count=len(commands))
+            return commands if isinstance(commands, list) else []
+        except httpx.HTTPStatusError as error:
+            logger.error("commands_list_failed", status_code=error.response.status_code)
+            raise OpenCodeError(
+                f"Failed to list commands: {error}", status_code=error.response.status_code
+            ) from error
+        except httpx.HTTPError as error:
+            logger.error("commands_list_error", error=str(error))
+            raise OpenCodeError(f"Failed to list commands: {error}") from error
 
     async def question_reject(self, request_id: str, directory: str | None = None) -> bool:
-        params = {"directory": directory} if directory else None
-        return await post_boolean(
-            client=self.client,
-            base_url=self.base_url,
-            endpoint=f"/question/{request_id}/reject",
-            payload={},
-            params=params,
-            error_prefix="Failed to reject question",
-        )
+        return await question_reject(self.client, self.base_url, request_id, directory)
 
     async def permission_reply(
-        self,
-        request_id: str,
-        reply: str,
-        message: str | None = None,
-        directory: str | None = None,
+        self, request_id: str, reply: str, message: str | None = None, directory: str | None = None
     ) -> bool:
-        params = {"directory": directory} if directory else None
-        payload: dict[str, Any] = {"reply": reply}
-        if message:
-            payload["message"] = message
-        return await post_boolean(
-            client=self.client,
-            base_url=self.base_url,
-            endpoint=f"/permission/{request_id}/reply",
-            payload=payload,
-            params=params,
-            error_prefix="Failed to reply to permission request",
-        )
+        params = PermissionParams(message=message, directory=directory)
+        return await permission_reply(self.client, self.base_url, request_id, reply, params)
