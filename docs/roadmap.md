@@ -56,22 +56,6 @@ Jarvis: a personal AI assistant (butler, consigliere) accessible via Telegram, b
 - Private questions (not recorded)
 - Summarize arbitrary PDFs, markdown files, books
 
-## Security Requirements
-
-- No public exposed ports
-- Beware of SSH-key exploits
-- Limit damage if Telegram account is compromised
-- No write privileges unless on the allowlist
-- Agent must NOT: write/delete emails, modify X account, message anyone besides the user
-
-## Observability Requirements
-
-- Structured logs to stdout/stderr
-- Correlation ID passed through all requests
-- Log all agent actions and messages
-- Avoid log clutter (no "transaction started" style logs; use debug levels)
-- Consider Langfuse for agent traceability
-
 ## Current Status
 
 Jarvis is a local Telegram bot that bridges mobile chat to OpenCode Server. All commands are routed through OpenCode (local command handling was removed).
@@ -102,66 +86,6 @@ Jarvis is a local Telegram bot that bridges mobile chat to OpenCode Server. All 
 **Not Planned:**
 - Voice input (STT)
 - Command discoverability via `/help-jarvis` (replaced by native Telegram command menu)
-
-## Target Architecture
-
-See [Technical Context](tech-context.md) for detailed architecture rationale.
-
-### Medallion Architecture
-
-```
-vault/
-├── raw/                              # Bronze layer (source data)
-│   ├── opencode/opencode.db          # OpenCode sessions/messages (via XDG_DATA_HOME)
-│   ├── bookmarks/                    # X bookmark markdown artifacts
-│   ├── url-saves/                    # Firecrawl-scraped URLs
-│   └── attachments/                  # Telegram attachments (raw files)
-│
-└── index/                            # Silver layer (processed)
-    └── jarvis.db                     # FTS5 + sqlite-vec + kb_documents + kb_chunks
-```
-
-### Data Flow on Every Message
-
-```
-User message
-    │
-    ├──► Auto-retrieval (user text as query)
-    │    ├── FTS5 (BM25 keyword) ──┐
-    │    ├── sqlite-vec (semantic) ─┤── RRF fusion ──► ranked context snippets
-    │    └── OpenCode sessions DB SQL ─┘
-    │
-    ├──► Inject context as system prefix
-    │
-    └──► Send to OpenCode (prompt_async with system context)
-```
-
-### Derived Index: SQLite (vault/index/jarvis.db)
-
-- FTS5 for keyword search (BM25)
-- sqlite-vec for semantic embeddings (BGE-M3, 1024-dim)
-- RRF fusion for rank combination
-
-### Embedding Strategy
-
-| Parameter | Value | Rationale |
-|---|---|---|
-| Model | BAAI/bge-m3 | Multilingual, strong dense retrieval, runs locally on M4 |
-| Dimensions | 1024 | Standard for BGE-M3 dense mode |
-| Chunk size | 1800 chars | Fits within BGE-M3's 8192 token context |
-| Overlap | ~200 chars (10-15%) | Handles cross-boundary topics |
-| Normalization | title + heading + chunk_text (truncated 2000 chars) | Includes structural context |
-| Distance | Cosine | Standard for normalized dense vectors |
-| Storage | sqlite-vec (local, embedded) | No external dependencies |
-
-## OpenCode Custom Commands
-
-### Implemented
-
-Only 1 custom OpenCode command; all other commands are native OpenCode:
-- `/save` - Save URL to `vault/raw/url-saves/` (custom command)
-
-See [Command Reference](reference/commands.md) for details.
 
 ## Implementation Phases
 
@@ -238,7 +162,7 @@ Unified hybrid context retrieval with semantic search. RRF fusion of FTS5 + sqli
 - [Build Agents That Learn](https://x.com/ashpreetbedi/status/2016318096772936159)
 - [Agents Need a Database](https://x.com/ashpreetbedi/status/2015935966268018823)
 - [Dynamic context discovery](https://cursor.com/blog/dynamic-context-discovery)
-- [How to build agents with filesystems and bash](https://vercel.com/blog/how-to-build-agents-with-filesystems-and-bash)
+- [How to build agents with filesystems and bash](https://vercel.com/blog/how-to-build-agens-with-filesystems-and-bash)
 
 ### Tools & Plugins
 - [opencode-telegram-bot](https://github.com/grinev/opencode-telegram-bot) - closest implementation to reference

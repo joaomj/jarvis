@@ -25,20 +25,18 @@ docker compose up -d jarvis          # Terminal B: Jarvis bot
 # Done! Message your bot on Telegram
 ```
 
-See [Deployment Guide](docs/reference/deployment.md) for detailed setup instructions.
-
 ## Features
 
-- 📱 Chat with OpenCode AI via Telegram
-- 🔄 All OpenCode commands: `/compact`, `/undo`, `/redo`, `/share`, etc.
-- 📁 File references: `explain @src/config.py`
-- 💻 Bash commands: `!ls -la`
-- 📚 X bookmarks sync with natural language queries
-- 🧠 Curated memory stored in local `vault/`
-- 📎 Attachment ingestion and indexing
-- 🔎 Source-grounded answers with citations
-- 🔒 Single-user security
-- 🚀 Polling mode - runs locally, no public URLs
+- Chat with OpenCode AI via Telegram
+- All OpenCode commands: `/compact`, `/undo`, `/redo`, `/share`, etc.
+- File references: `explain @src/config.py`
+- Bash commands: `!ls -la`
+- X bookmarks sync with natural language queries
+- Auto-retrieval with hybrid search (FTS5 + sqlite-vec + RRF fusion)
+- Attachment ingestion and indexing
+- Source-grounded answers with citations
+- Single-user security
+- Polling mode -- runs locally, no public URLs
 
 ## Usage Examples
 
@@ -60,36 +58,71 @@ You: What did I bookmark about AI?
 Jarvis: Bookmarks matching "AI" (8 total)...
 ```
 
-### Memory and Attachments
+### Save and Retrieve URLs
 ```
-You: remember I prefer concise summaries
-Jarvis: Saved to memory.
+You: /save https://example.com/article
+Jarvis: Saved and indexed.
 
+You: Find that article about Rust async
+Jarvis: [grounded answer from saved content with citations]
+```
+
+### Private Mode
+```
+You: private: what do you think about this idea?
+Jarvis: [replies without logging or retrieving context]
+```
+
+### Attachments
+```
 You: [attach notes.txt] what does this say?
-Jarvis: [grounded answer with citations]
+Jarvis: [grounded answer from attachment content]
 ```
 
 ## Commands
 
-**Local Commands:** `/models`, `/new`, `/sessions`
+**Local Commands:** `/models`, `/new`, `/sessions`, `/save <url>`, `/model <provider/model>`
 
-**Jarvis Commands:** `/save <url>`, `/recall <query>`
+**OpenCode Commands:** `!compact`, `!undo`, `!share`, etc. (forwarded to OpenCode)
 
-**OpenCode:** `!compact`, `!undo`, `!share`, etc.
+**Blocked (TUI-only):** `/exit`, `/editor`, `/themes`
 
-See [Command Reference](docs/reference/commands.md) for complete documentation.
+## Configuration
 
-## Documentation
+Copy `.env.example` to `.env` and configure:
 
-- [Quick Start](#quick-start) - Get running in minutes
-- [Deployment Guide](docs/reference/deployment.md) - Production and development setup
-- [Configuration](docs/reference/configuration.md) - Environment variables and settings
-- [Technical Context](docs/tech-context.md) - Architecture and design decisions
-- [Roadmap](docs/ROADMAP.md) - Implementation phases and future plans
-- [Database Schema](docs/reference/database-schema.md) - SQLite table reference
-- [Security](docs/reference/security.md) - Security model
+```bash
+# Required
+TELEGRAM_BOT_ID=your_bot_token_here          # from @BotFather
+TELEGRAM_USER_ID=123456789                   # from @userinfobot
+OPENCODE_URL=http://localhost:4096
+OPENCODE_SERVER_PASSWORD=secure_password_here
 
-## Development
+# Optional: X Bookmarks (OAuth 2.0)
+X_CLIENT_ID=your_x_client_id_here
+X_CLIENT_SECRET=your_x_client_secret_here
+```
+
+See [Technical Context](docs/tech-context.md#configuration) for all environment variables.
+
+## Deployment
+
+### Docker (Recommended)
+
+```bash
+# 1. Start OpenCode server on host
+./scripts/start-opencode.sh
+
+# 2. Start Jarvis in Docker
+docker compose up -d jarvis
+
+# 3. Follow logs
+docker compose logs -f jarvis
+```
+
+To stop: `docker compose stop jarvis`
+
+### Development
 
 ```bash
 # Install dependencies
@@ -101,17 +134,37 @@ pdm run python -m jarvis
 # Run tests
 pdm run pytest
 
+# Run tests with coverage
+pdm run pytest --cov=src/jarvis --cov-report=term-missing
+
 # Lint
 pdm run ruff check .
+pdm run ruff format .
 ```
 
-See [Deployment Guide](docs/reference/deployment.md) for full development setup.
+### Backups
+
+- **Database:** `vault/index/jarvis.db`
+- **Vault:** `vault/` directory (raw content and indexes)
+- **Config:** `.env` file (contains secrets)
+
+### Monitoring
+
+- Container health status
+- Structured JSON logs with correlation IDs
+- Key metrics: sync status, query performance, error rates
+
+## Documentation
+
+- [Technical Context](docs/tech-context.md) -- Architecture, state machines, design decisions, security
+- [Database Schema](docs/database-schema.md) -- SQLite table and index reference
+- [Roadmap](docs/roadmap.md) -- Implementation phases and future plans
 
 ## License
 
-MIT License - see [LICENSE](LICENSE)
+MIT License -- see [LICENSE](LICENSE)
 
 ## Acknowledgments
 
-- [OpenCode](https://opencode.ai) - The AI coding assistant that powers Jarvis
-- [python-telegram-bot](https://python-telegram-bot.org/) - Telegram bot framework
+- [OpenCode](https://opencode.ai) -- The AI coding assistant that powers Jarvis
+- [python-telegram-bot](https://python-telegram-bot.org/) -- Telegram bot framework
