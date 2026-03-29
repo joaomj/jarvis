@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 HEADING_RE = re.compile(r"^(#{1,3})\s+(.+?)\s*$")
 
+DEFAULT_OVERLAP_LINES = 5
+
 
 @dataclass(frozen=True)
 class KBChunk:
@@ -19,8 +21,10 @@ class KBChunk:
     chunk_text: str
 
 
-def chunk_markdown(body: str, max_chunk_size: int) -> list[KBChunk]:
-    """Split markdown content into deterministic, overlap-free chunks."""
+def chunk_markdown(
+    body: str, max_chunk_size: int, overlap_lines: int = DEFAULT_OVERLAP_LINES
+) -> list[KBChunk]:
+    """Split markdown content into deterministic chunks with heading-aware overlap."""
     lines = body.splitlines()
     if not lines:
         return []
@@ -28,20 +32,26 @@ def chunk_markdown(body: str, max_chunk_size: int) -> list[KBChunk]:
     sections = _sectionize(lines)
     chunks: list[KBChunk] = []
     chunk_index = 0
+    overlap_buffer: list[tuple[int, str]] = []
 
     for heading, section_lines in sections:
+        all_lines = overlap_buffer + section_lines
+        overlap_buffer = []
         current: list[tuple[int, str]] = []
         current_length = 0
 
-        for line_no, line in section_lines:
+        for line_no, line in all_lines:
             line_length = len(line)
 
             if line_length > max_chunk_size:
                 if current:
                     chunks.append(_build_chunk(chunk_index, heading, current))
                     chunk_index += 1
-                    current = []
-                    current_length = 0
+                    tail = current[-overlap_lines:] if overlap_lines > 0 else []
+                    current = list(tail)
+                    current_length = (
+                        sum(len(ln) for _, ln in current) + (len(current) - 1) if current else 0
+                    )
 
                 for start in range(0, line_length, max_chunk_size):
                     part = line[start : start + max_chunk_size]
@@ -61,8 +71,11 @@ def chunk_markdown(body: str, max_chunk_size: int) -> list[KBChunk]:
             if current and current_length + candidate_len > max_chunk_size:
                 chunks.append(_build_chunk(chunk_index, heading, current))
                 chunk_index += 1
-                current = []
-                current_length = 0
+                tail = current[-overlap_lines:] if overlap_lines > 0 else []
+                current = list(tail)
+                current_length = (
+                    sum(len(ln) for _, ln in current) + (len(current) - 1) if current else 0
+                )
 
             current.append((line_no, line))
             current_length += line_length if current_length == 0 else candidate_len
@@ -70,6 +83,7 @@ def chunk_markdown(body: str, max_chunk_size: int) -> list[KBChunk]:
         if current:
             chunks.append(_build_chunk(chunk_index, heading, current))
             chunk_index += 1
+            overlap_buffer = current[-overlap_lines:] if overlap_lines > 0 else []
 
     return chunks
 
