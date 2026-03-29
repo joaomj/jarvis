@@ -26,7 +26,7 @@ def test_kb_tables_created_on_fresh_db(tmp_path) -> None:
     assert "kb_ingest_log" in names
 
     document_id = db.upsert_document(
-        markdown_path=".jarvis/url-saves/example.md",
+        markdown_path="vault/raw/url-saves/example.md",
         url_original="https://example.com/post",
         url_canonical="https://example.com/post",
         title="Example",
@@ -64,7 +64,7 @@ def test_kb_migration_is_non_destructive_for_existing_db(tmp_path) -> None:
 
     assert db.is_user_allowed(123)
     document_id = db.upsert_document(
-        markdown_path=".jarvis/url-saves/legacy.md",
+        markdown_path="vault/raw/url-saves/legacy.md",
         url_original="https://legacy.example.com",
         url_canonical="https://legacy.example.com",
         title="Legacy",

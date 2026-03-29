@@ -17,7 +17,7 @@ def _chunk(doc_id: int, chunk_index: int, title: str, source: str) -> RetrievedC
         chunk_text="Deterministic indexing and retrieval.",
         title=title,
         url_original=source,
-        markdown_path=f".jarvis/url-saves/{doc_id}.md",
+        markdown_path=f"vault/raw/url-saves/{doc_id}.md",
         score=-1.0,
     )
 

@@ -45,14 +45,14 @@ def test_retrieve_chunks_applies_diversity_cap(tmp_path) -> None:
     db = Database(str(tmp_path / "test.db"))
     doc1 = _seed_document(
         db,
-        ".jarvis/url-saves/doc1.md",
+        "vault/raw/url-saves/doc1.md",
         "Doc1",
         "hash-1",
         ["python sqlite indexing", "python sqlite testing", "python sqlite tuning"],
     )
     doc2 = _seed_document(
         db,
-        ".jarvis/url-saves/doc2.md",
+        "vault/raw/url-saves/doc2.md",
         "Doc2",
         "hash-2",
         ["python retrieval architecture", "sqlite query patterns"],
@@ -72,7 +72,7 @@ def test_retrieve_chunks_returns_empty_for_unmatched_query(tmp_path) -> None:
     db = Database(str(tmp_path / "test.db"))
     _seed_document(
         db,
-        ".jarvis/url-saves/doc3.md",
+        "vault/raw/url-saves/doc3.md",
         "Doc3",
         "hash-3",
         ["observability metrics and alerts"],
