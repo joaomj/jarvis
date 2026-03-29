@@ -39,8 +39,8 @@ If unsure what the user wants, ask for clarification rather than guessing.
 
 | Resource | Path | Description |
 |----------|------|-------------|
-| X Bookmarks Database | `.jarvis/jarvis.db` | SQLite database with saved tweets |
-| Vault | `vault/` | Local content storage (memories, saved URLs, attachments) |
+| X Bookmarks Database | `vault/index/jarvis.db` | SQLite database with saved tweets |
+| Vault | `vault/` | Local content storage (bookmarks, saved URLs, attachments) |
 
 ## Behavior Guidelines
 

@@ -16,7 +16,7 @@ Save a URL to the Jarvis vault for later retrieval.
 
 1. Extract URL from `$ARGUMENTS`
 2. Use Firecrawl to scrape content
-3. Save markdown to `vault/url-saves/`
+3. Save markdown to `vault/raw/url-saves/`
 4. Index into KB for retrieval
 5. Confirm save with file path
 
@@ -29,4 +29,4 @@ Save a URL to the Jarvis vault for later retrieval.
 ## Notes
 
 - Works with any URL (tweets, articles, newsletters)
-- Content becomes searchable via `/recall`
+- Content becomes automatically searchable via auto-retrieval

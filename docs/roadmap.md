@@ -1,400 +1,251 @@
 # Roadmap
 
-This document captures Jarvis' current state, the gaps versus the main objectives, and an incremental plan to reach:
+Jarvis: a personal AI assistant (butler, consigliere) accessible via Telegram, bridging mobile chat with OpenCode Server.
 
-- Memory sovereignty: memories, logs, and learnings are stored locally, portable, and syncable.
-- LLM independence: models/providers can be swapped without losing the assistant's usefulness.
+## Vision & Principles
 
-## Decisions (Current)
+- **Single continuous chat** - no thread management UI. All organization happens in the background.
+- **Memory sovereignty** - memories, logs, and learnings stored locally in `vault/`, portable and syncable.
+- **LLM independence** - models/providers swappable without losing assistant usefulness.
+- **Self-improving** - the agent must passively learn from its user over time.
+- **Thin bridge** - Jarvis bridges Telegram to OpenCode; all AI intelligence stays in OpenCode.
+- **No full autonomy** - the agent does not have unrestricted OS/filesystem access. Allowlist-only.
+- **Auto-context** - every message automatically retrieves relevant context from the knowledge base and conversation history. No explicit recall/remember commands needed.
 
-- Telegram stays as the UI layer for now.
-- The memory vault lives in `vault/`.
-- Ignore Google Drive integration for now.
-- No special "chat only with this source" mode; Jarvis detects source-grounded questions and prioritizes retrieved sources.
-- Source priority order: attached files > local files (`vault/`) > high reputation web sources > general web sources.
-- When a question benefits from web sources, Jarvis defaults to a "Sourced Answer" that includes high-reputation web sources (no extra confirmation).
-- **Commands:** Jarvis uses OpenCode custom commands instead of building NLU layer in Jarvis.
-- **PDF extraction:** LLM-based via OpenCode models, avoid traditional PDF parsers.
-- **Retrieval:** BM25-first approach, add semantic search only if needed.
+## Hardware & Constraints
 
-## Architecture Principles
+- Mac Mini M4 (16GB RAM, 256GB SSD) as primary host
+- iPhone 16 for mobile access
+- Home network on ISP router (no admin access)
+- Familiar with Tailscale and Cloudflare tunnels
 
-These principles guide all implementation decisions:
+## Decisions
 
-1. **Thin bridge:** Jarvis stays minimal, delegates intelligence to OpenCode.
-2. **Leverage OpenCode:** Use OpenCode's extensibility (custom commands, agents, skills) instead of reimplementing.
-3. **Incremental retrieval:** Start simple (BM25), add complexity only when needed.
-4. **Configuration over code:** Avoid hardcoding, use declarative configs.
-5. **LLM for complex tasks:** Use vision models for PDF extraction instead of error-prone traditional parsers.
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| UI layer | Telegram | Mobile-first, no public ports, polling mode |
+| Memory storage | `vault/` (files) | Files are source of truth; databases are derived indexes |
+| Cloud sync | Ignore for now | Local-first; reconsider Syncthing/git later |
+| Source-grounded mode | No special mode | Jarvis detects source-grounded questions and prioritizes retrieved sources |
+| Source priority | Attached > vault/ > reputable web > general web | Most specific context first |
+| Sourced answers | Default behavior | When web sources help, include high-reputation citations without extra confirmation |
+| Commands | OpenCode custom commands | Thin bridge; leverage OpenCode extensibility |
+| PDF extraction | LLM-based via OpenCode | Avoid fragile traditional PDF parsers |
+| Retrieval | Hybrid (FTS5 + sqlite-vec + RRF fusion) | BM25 + semantic, fused via Reciprocal Rank Fusion |
+| Command discoverability | OpenCode `GET /command` + Telegram `set_my_commands` | No custom help command needed; commands appear natively in Telegram menu |
+| Conversation memory | OpenCode sessions DB (read-only) | Leverage OpenCode's built-in session management; no separate memory store |
+| Architecture | Medallion (bronze + silver) | Raw data in `vault/raw/`, processed indexes in `vault/index/` |
+| Software philosophy | Open source, no vendor lock-in | Prefer portable solutions |
 
-## Current Status (What Exists Today)
+## Use Cases (Priority Order)
 
-Jarvis is a local Telegram bot that bridges mobile chat to OpenCode Server and includes local-data features.
+### High Priority / Active Pain Point
+- **Summarize saved content** - X bookmarks, Substack newsletters, articles. Option to save as local markdown. This is the most urgent use case.
 
-**Complete:**
-- Telegram bridge to OpenCode
-  - Polling mode, no webhook/public port requirement.
-  - Forwards prompts and OpenCode commands, streams SSE events, supports interactive question/permission flows.
-  - Maintains a pinned status message with session/model/agent/tokens/changed files.
+### Daily Use
+- Chat about topics (History, Economics, random questions)
+- Personal counselling ("Alfred Pennyworth" persona - Christopher Nolan's trilogy)
+- Software engineering via OpenCode (remote command)
+
+### Research
+- Detailed technical reports from trustworthy sources (not Reddit)
+- Research paper reliability analysis (statistical methodology)
+- PDF document discussion (like Google's NotebookLM) - send PDF, discuss using only that source
+
+### On Demand
+- Private questions (not recorded)
+- Summarize arbitrary PDFs, markdown files, books
+
+## Security Requirements
+
+- No public exposed ports
+- Beware of SSH-key exploits
+- Limit damage if Telegram account is compromised
+- No write privileges unless on the allowlist
+- Agent must NOT: write/delete emails, modify X account, message anyone besides the user
+
+## Observability Requirements
+
+- Structured logs to stdout/stderr
+- Correlation ID passed through all requests
+- Log all agent actions and messages
+- Avoid log clutter (no "transaction started" style logs; use debug levels)
+- Consider Langfuse for agent traceability
+
+## Current Status
+
+Jarvis is a local Telegram bot that bridges mobile chat to OpenCode Server. All commands are routed through OpenCode (local command handling was removed).
+
+**Implemented:**
+- Telegram bridge with polling mode
 - Local persistence (SQLite)
-  - Stores session records, message/response logs, feedback votes, X bookmarks, and a knowledge-base index.
-- X bookmarks
-  - OAuth2 PKCE + token refresh.
-  - Daily incremental sync + weekly full reconciliation.
-  - Basic natural-language time-range queries (e.g. last week/month/today/recent).
-- URL save + Knowledge Base (KB)
-  - Detects save intent for URLs.
-  - Delegates scraping to OpenCode (Firecrawl workflow) and writes markdown under `.jarvis/url-saves/`.
-  - Indexes saved markdown into SQLite (FTS5), chunked deterministically.
-  - Can answer "grounded" questions using retrieved chunks and requires citations.
-- Memory (vault-first)
-  - Curated memory storage with remember/forget/recall flows.
-  - Private-turn persistence guard.
-- Attachment ingestion
-  - Telegram document ingestion for text attachments.
-  - Attachments persisted under `vault/sources/attachments/` and indexed.
+- X bookmarks sync (OAuth2, daily incremental)
+- URL save with KB indexing (`/save`) to `vault/raw/url-saves/`
+- Attachment ingestion to `vault/raw/attachments/`
+- Hybrid retrieval (FTS5 + sqlite-vec + RRF fusion)
+- Auto-retrieval (every message gets relevant KB + conversation context injected)
+- Feedback mechanism (thumbs up/down on responses)
+- Model/agent visibility via pinned status message (session, model, agent, context tokens)
+- Model selection from favorites list (`/models`)
+- Session management (daily rotation, persistence, `/new`, `/switch`)
+- Event processing (SSE handling from OpenCode)
+- Sync health monitoring (drift detection and repair)
+- Command routing (blocks TUI-only commands like `/exit`, `/editor`)
+- Command discoverability (Telegram menu via `set_my_commands` from OpenCode `GET /command`)
+- Health probe (daily startup check with model info)
+- Medallion architecture (bronze: `vault/raw/`, silver: `vault/index/`)
+- OpenCode runs with `XDG_DATA_HOME=vault/raw/` (sessions DB lives in vault)
 
+**On Hold:**
+- PDF extraction (LLM quality varies by model; needs per-model evaluation)
 
-**Key limitation:** PDF extraction not yet supported (high priority).
+**Not Planned:**
+- Voice input (STT)
+- Command discoverability via `/help-jarvis` (replaced by native Telegram command menu)
 
-## Objective Fit (How Close We Are)
+## Target Architecture
 
-### Memory sovereignty
+See [Technical Context](tech-context.md) for detailed architecture rationale.
 
-Already good:
+### Medallion Architecture
 
-- A meaningful amount of data is local (bookmarks, URL saves, memories, logs) and inspectable.
-- SQLite + markdown files are portable and easy to back up.
-- Vault (`vault/`) established as source of truth.
+```
+vault/
+├── raw/                              # Bronze layer (source data)
+│   ├── opencode/opencode.db          # OpenCode sessions/messages (via XDG_DATA_HOME)
+│   ├── bookmarks/                    # X bookmark markdown artifacts
+│   ├── url-saves/                    # Firecrawl-scraped URLs
+│   └── attachments/                  # Telegram attachments (raw files)
+│
+└── index/                            # Silver layer (processed)
+    └── jarvis.db                     # FTS5 + sqlite-vec + kb_documents + kb_chunks
+```
 
-Not there yet:
+### Data Flow on Every Message
 
-- PDF content not yet indexed (in progress).
-- Retrieval quality could improve (BM25 upgrade pending).
+```
+User message
+    │
+    ├──► Auto-retrieval (user text as query)
+    │    ├── FTS5 (BM25 keyword) ──┐
+    │    ├── sqlite-vec (semantic) ─┤── RRF fusion ──► ranked context snippets
+    │    └── OpenCode sessions DB SQL ─┘
+    │
+    ├──► Inject context as system prefix
+    │
+    └──► Send to OpenCode (prompt_async with system context)
+```
 
-### LLM independence
+### Derived Index: SQLite (vault/index/jarvis.db)
 
-Already good:
+- FTS5 for keyword search (BM25)
+- sqlite-vec for semantic embeddings (BGE-M3, 1024-dim)
+- RRF fusion for rank combination
 
-- OpenCode provides multi-provider model selection; Jarvis acts as a thin bridge.
-- PDF extraction will use OpenCode's model selection (GPT-4V, Claude Vision, etc.)
+### Embedding Strategy
 
-Not there yet:
-
-- Retrieval-grounded answering limited to KB intent path; most questions default to generic LLM answering.
-
-## Target Architecture (Simple, Stable, Sovereign)
-
-The core pattern is: files are the source of truth; databases are derived indexes.
-
-### Source of truth: `vault/`
-
-`vault/` is a plain directory tree that contains:
-
-- Raw conversation logs (append-only; organized by date).
-- Derived artifacts (session summaries, daily summaries).
-- Curated memories (atomic facts/preferences/decisions) with explicit user control.
-- Saved sources (articles, books, PDFs) plus extracted markdown/text.
-
-The vault should be safe to sync with Syncthing and/or git (with secrets excluded). The system should tolerate the index being deleted and rebuilt from `vault/`.
-
-### Derived index: SQLite + BM25
-
-SQLite remains for storage; BM25 provides better lexical retrieval:
-
-- BM25 for keyword search (Phase 7.1).
-- Optional: sentence-transformers embeddings for semantic search (Phase 7.2).
-- Optional: native hybrid retrieval tuning (Phase 7.3).
-
-### Deterministic retrieval and prompt injection
-
-To meet the requirement "prioritize retrieved sources over training data":
-
-- Jarvis detects when the user wants a sourced/grounded answer (explicitly or implicitly).
-- Jarvis retrieves evidence deterministically in this order: attached files > `vault/` > high-rep web > general web.
-- Jarvis injects retrieved excerpts first and instructs the model to cite them.
-
-If the user requires academic-style grounding, then factual claims must be backed by captured sources. If retrieval + web search are insufficient, Jarvis should say "insufficient evidence" rather than inventing citations.
+| Parameter | Value | Rationale |
+|---|---|---|
+| Model | BAAI/bge-m3 | Multilingual, strong dense retrieval, runs locally on M4 |
+| Dimensions | 1024 | Standard for BGE-M3 dense mode |
+| Chunk size | 1800 chars | Fits within BGE-M3's 8192 token context |
+| Overlap | ~200 chars (10-15%) | Handles cross-boundary topics |
+| Normalization | title + heading + chunk_text (truncated 2000 chars) | Includes structural context |
+| Distance | Cosine | Standard for normalized dense vectors |
+| Storage | sqlite-vec (local, embedded) | No external dependencies |
 
 ## OpenCode Custom Commands
 
-Jarvis leverages OpenCode's built-in command system for Jarvis-specific features instead of building NLU in Jarvis.
+### Implemented
 
-### Why Custom Commands?
+Only 1 custom OpenCode command; all other commands are native OpenCode:
+- `/save` - Save URL to `vault/raw/url-saves/` (custom command)
 
-- Keeps Jarvis as thin Telegram bridge (no NLU complexity)
-- Leverages OpenCode's model-agnostic design
-- Uses OpenCode's existing command infrastructure
-- Avoids duplicating LLM logic
+See [Command Reference](reference/commands.md) for details.
 
-### Planned Commands
+## Implementation Phases
 
-```
-.opencode/commands/
-├── ingest-pdf.md      # PDF extraction via LLM vision
-├── recall.md          # Search vault memories
-├── save.md            # Save URL to vault
-├── remember.md        # Store curated memory
-├── forget.md          # Remove curated memory
-└── help-jarvis.md     # List Jarvis commands
-```
-
-See [OpenCode Custom Commands Documentation](https://opencode.ai/docs/commands/) and [Opencode Native Commands](https://opencode.ai/docs/tui#commands) for implementation details.
-
-### Command Discovery
-
-Users discover Jarvis commands via:
-- `/help-jarvis` - Lists all Jarvis-specific commands
-- OpenCode's built-in command help system
-
-## Retrieval Strategy (BM25-First)
-
-### Phase 7.1: Upgrade to BM25 (Quick Win)
-
-BM25 (https://pypi.org/project/BM25/) provides better keyword relevance than SQLite FTS:
-
-- Pure Python (no new system dependencies)
-- Simple API: `BM25.index()` + `BM25.search()`
-- Better ranking algorithm than FTS5
-- Easy migration from current FTS implementation
-
-### Phase 7.2: Add Semantic Search (If Needed)
-
-If BM25 alone shows consistent retrieval misses for semantic queries:
-
-- Add sentence-transformers embeddings
-- Hybrid retrieval: BM25 (lexical) + embeddings (semantic)
-- Fallback: If embeddings are insufficient, tune native rank fusion and thresholds
-
-### Phase 7.3: Improve Native Hybrid Search (If Still Needed)
-
-If Phase 7.2 still shows retrieval gaps:
-
-- Tune lexical/semantic rank fusion weights and thresholds
-- Add optional lightweight reranking in Python stack
-- Keep local-first, Python-first retrieval path
-
-## PDF Extraction Strategy
-
-### Why LLM-Based?
-
-Traditional PDF parsers (PyMuPDF, pdfplumber) struggle with:
-- Multi-column layouts
-- Tables and figures
-- Scanned documents (OCR needed)
-- Complex formatting
-
-LLM-based extraction (via OpenCode models) provides:
-- 95%+ accuracy on complex layouts
-- Table and structure understanding
-- Consistent output format
-
-### Implementation
-
-**Phase 8.1:** Create `/ingest-pdf` custom command
-- Uses OpenCode's model selection
-- Accepts PDF attachment or path
-- Extracts text, tables, structure
-- Saves to `vault/sources/pdfs/`
-
-**Phase 8.2:** Intelligent extraction pipeline
-- Simple PDFs: Fast extraction
-- Complex PDFs: LLM vision fallback
-- Store extraction metadata (method, confidence)
-
-**Phase 8.3:** PDF search & retrieval
-- Index PDF content into vault/
-- BM25 retrieval across PDF content
-- Citation support with page numbers
-
-## Next Steps (Incremental Plan With Acceptance Criteria)
-
-### Phase 1-5: [COMPLETE] ✅
+### Phase 1-6: [COMPLETE]
 
 - Phase 1: Establish vault/ as source of truth
-- Phase 2: Private mode (do not record)
-- Phase 3: Curated memory (explicit remember/forget)
-- Phase 4: Source-grounded answers by default when asked
-- Phase 5: Attached files as first-class sources
+- Phase 2: Private mode
+- Phase 3: Curated memory (removed: replaced by OpenCode conversation history)
+- Phase 4: Source-grounded answers
+- Phase 5: Attached files as sources
+- Phase 6: Hybrid retrieval
 
-### Phase 7: Improve Retrieval Quality
+### Phase 7: PDF Ingestion [ON HOLD]
 
-#### Phase 7.1: Upgrade to BM25
+LLM-based PDF extraction quality varies by model. Revisit when a reliable approach is identified.
 
-Acceptance criteria:
+### Phase 8: Memory System Overhaul [COMPLETE]
 
-- BM25 package integrated (`pip install BM25`)
-- Existing FTS queries migrated to BM25
-- Benchmark shows improved relevance over FTS5
-- Index rebuilds automatically from vault/
+Replaced curated memory system with OpenCode conversation history:
+- Removed `memory_entries` table, `MemoryStore`, `BotMemoryMixin`
+- Removed per-message LLM classification tax for memory intents
+- Removed `/recall`, `/remember`, `/forget` commands
+- Added auto-retrieval: every message automatically gets relevant KB + conversation context
+- Added conversation history search via OpenCode DB (read-only)
 
-#### Phase 7.2: Add Semantic Search (If Needed)
+### Phase 9: [COMPLETE]
 
-Acceptance criteria:
+Unified hybrid context retrieval with semantic search. RRF fusion of FTS5 + sqlite-vec results.
 
-- sentence-transformers embeddings integrated
-- Hybrid retrieval (BM25 + embeddings) working
-- Semantic queries return relevant results ("articles about distributed systems")
-- Falls back gracefully when embeddings unavailable
+### Phase 10: UX Improvements [COMPLETE]
 
-#### Phase 7.3: Improve Native Hybrid Search (If Still Needed)
+- Feedback mechanism (thumbs up/down inline keyboard)
+- Model/agent visibility (pinned status message)
+- Command discoverability (Telegram command menu via `set_my_commands`)
 
-Acceptance criteria:
+### Phase 11: Medallion Architecture [COMPLETE]
 
-- Native hybrid search tuned for improved precision/recall
-- Hybrid search (FTS + vectors + rank fusion tuning) working
-- Performance acceptable for vault/ size
-
-### Phase 8: PDF Ingestion via OpenCode Commands
-
-#### Phase 8.1: Custom `/ingest-pdf` Command
-
-Acceptance criteria:
-
-- `.opencode/commands/ingest-pdf.md` created
-- Command accepts PDF via attachment or path
-- Extracts text using OpenCode vision model
-- Saves extracted content to `vault/sources/pdfs/`
-- Shows extraction status to user
-
-#### Phase 8.2: Intelligent Extraction Pipeline
-
-Acceptance criteria:
-
-- Simple PDFs: Fast extraction (under 5 seconds)
-- Complex PDFs: LLM vision fallback triggered automatically
-- Extraction metadata stored (method, confidence, page count)
-- 95%+ extraction accuracy on mixed layouts
-
-#### Phase 8.3: PDF Search & Retrieval
-
-Acceptance criteria:
-
-- PDF content indexed into BMWhat does the Tocqueville PDF say25
-- " about democracy?" returns relevant excerpts
-- Citations include page numbers
-- PDF content searchable alongside other vault/ content
-
-### Phase 9: Jarvis-Specific OpenCode Commands
-
-#### Phase 9.1: Core Jarvis Commands
-
-Status: **Partially Complete** ✅ (2/7 commands implemented)
-
-Commands created:
-- ✅ `/save` - Save URL to vault (implemented with Firecrawl workflow)
-- ✅ `/recall` - Search vault (searches all content: bookmarks, URLs, attachments, memories)
-- ⏳ `/ingest-pdf` - PDF extraction (Phase 8.1)
-- ⏳ `/remember` - Store curated memory (future)
-- ⏳ `/forget` - Remove curated memory (future)
-- ⏳ `/help-jarvis` - List Jarvis commands (using native `/help` instead)
-
-**Note:** We removed natural language routing in favor of explicit commands. Commands use OpenCode's native infrastructure (`$ARGUMENTS`).
-
-#### Phase 9.2: Command Discoverability
-
-Acceptance criteria:
-
-- `/help-jarvis` lists all Jarvis-specific features
-- Commands have descriptions visible in OpenCode help
-- User can discover features without reading docs
-
-#### Phase 9.3: Argument Handling
-
-Acceptance criteria:
-
-- Commands accept user input via `$ARGUMENTS`
-- Example: `/recall democracy in America` searches vault
-- Commands work naturally without requiring slash syntax
-
-### Phase 10: UX Improvements
-
-#### Phase 10.1: Feedback Mechanism
-
-Acceptance criteria:
-
-- Thumbs up/down buttons on bot messages
-- Feedback stored in SQLite (linked to message_id, session_id)
-- Analytics view shows response quality by model/agent
-- User can see which responses are helpful
-
-#### Phase 10.2: Model/Agent Visibility
-
-Acceptance criteria:
-
-- Every response shows `provider/model-id` in footer
-- Agent name shown when using specialized agents
-- Pinned status message includes model info
-
-### Phase 11: Environment & Dependency Management
-
-#### Phase 11.1: Fix Hardcoded Paths
-
-Acceptance criteria:
-
-- `scripts/start-opencode.sh` uses environment variables
-- No absolute local paths in scripts
-- Configurable paths for all runtime directories
-
-#### Phase 11.2: Docker Isolation Options
-
-Acceptance criteria:
-
-Docker Compose profiles:
-- `jarvis-only` (current): `docker compose up jarvis`
-- `full-stack`: `docker compose --profile full up` (OpenCode + Jarvis)
-
-Clear documentation for each mode.
-
-#### Phase 11.3: Dependency Isolation Strategies
-
-Acceptance criteria:
-
-Documentation for three approaches:
-1. **Hybrid (recommended for dev):** Jarvis in Docker, OpenCode on host with venv
-2. **Full Docker:** Both containerized (cleanest isolation)
-3. **Venv-only:** Both on host with isolated Python environments
+- Restructured vault/ into `vault/raw/` (bronze) and `vault/index/` (silver)
+- OpenCode runs with `XDG_DATA_HOME=vault/raw/` (sessions DB in vault)
+- Database moved to `vault/index/jarvis.db`
+- Dead code removed (System B: hybrid_retrieval, embedding, embedding_indexer, embedding_ops)
 
 ## Priority Order
 
-### Immediate (Next 2-4 weeks)
+### Immediate
 
-1. **Phase 8.1** - PDF ingestion via `/ingest-pdf` command
-2. **Phase 7.1** - BM25 upgrade (quick retrieval win)
-3. **Phase 9.1-9.2** - Core Jarvis commands + discoverability
+1. Verify OpenCode creates DB in vault/raw/opencode/ on startup
+2. Verify end-to-end: OpenCode health check + auto-retrieval on messages
 
-### Short-term (1-2 months)
+### Short-term
 
-4. **Phase 10.1** - Feedback mechanism
-5. **Phase 8.2-8.3** - Intelligent PDF pipeline + search
-6. **Phase 11.1-11.2** - Path fixes + Docker options
+2. Evaluate PDF extraction approaches per model
+3. Passive learning / self-improvement research
 
-### Medium-term (if needed)
+### Medium-term
 
-7. **Phase 7.2** - Semantic search (only if BM25 insufficient)
-8. **Phase 10.2** - Model visibility
-9. **Phase 7.3** - native hybrid tuning (only if needed)
+4. Cloud sync strategy (Syncthing vs git-based)
 
-## Risks and Tradeoffs
+## Open Questions
 
-- Telegram is convenient but not sovereign: bot chats are stored on Telegram infrastructure. Vault sovereignty still holds because Jarvis keeps the durable memory local, but private conversations should be explicitly supported.
-- "Agent decides to retrieve" is unreliable: we should avoid architectures that depend on the model correctly invoking a skill. Prefer deterministic routing + retrieval + prompt injection. ( *suggestion: we can still use skills, but clear rules/decision trees to AGENTS.md telling the agent when to invoke a skill; skills are a very convenient way to offload context from the agent context window, alowwing for easy 'lazy on-demand retrieval'.* )
-- Over-indexing early is a trap: embeddings/reranking are useful, but FTS + good metadata often wins on simplicity and debuggability.
+- Approach for agent learning (passive improvement from user interactions)
+- Approach for reliable skill/tool invocation by the agent
+- Cloud sync strategy (Syncthing vs git-based)
 
-## External References
+## References
 
-- BM25 (Python): https://pypi.org/project/BM25/
-- sqlite-vec (local vector search): https://github.com/asg017/sqlite-vec
-- OpenCode Commands: https://opencode.ai/docs/commands/
-- Vercel (filesystem + bash for agents): https://vercel.com/blog/how-to-build-agents-with-filesystems-and-bash
-- Vercel (AGENTS.md index outperforms skills): https://vercel.com/blog/agents-md-outperforms-skills-in-our-agent-evals
-- Turso (everything is a file; AgentFS concept): https://turso.tech/blog/nothing-new-under-the-sun
-- Thalo (plain-text + validation loop for knowledge): https://thalo.rejot.dev/blog/plain-text-knowledge-management
-- Plastic Labs (memory as reasoning; useful later for "learning"/distillation): https://blog.plasticlabs.ai/blog/Memory-as-Reasoning
-- OpenCode agents/subagents: https://opencode.ai/docs/agents/
-- OpenCode plugins: https://opencode.ai/docs/plugins/
+### Memory & Agent Architecture
+- [Agent Skills vs. Rules vs. Commands vs. Subagents](https://x.com/tempoimmaterial/status/2014054104658526645)
+- [WTF is a Context Graph?](https://x.com/parcadei/status/2013713799719559480)
+- [Memory as reasoning](https://blog.plasticlabs.ai/blog/Memory-as-Reasoning)
+- [sqlite-vec - local vector search for SQLite](https://github.com/asg017/sqlite-vec)
+- [How Clawdbot Remembers Everything](https://x.com/manthanguptaa/status/2015780646770323543)
+- [The Three-Layer Memory System Upgrade for Clawdbot](https://x.com/spacepixel/status/2015967798636556777)
+- [Build Agents That Learn](https://x.com/ashpreetbedi/status/2016318096772936159)
+- [Agents Need a Database](https://x.com/ashpreetbedi/status/2015935966268018823)
+- [Dynamic context discovery](https://cursor.com/blog/dynamic-context-discovery)
+- [How to build agents with filesystems and bash](https://vercel.com/blog/how-to-build-agents-with-filesystems-and-bash)
 
-Optional/inspiration:
+### Tools & Plugins
+- [opencode-telegram-bot](https://github.com/grinev/opencode-telegram-bot) - closest implementation to reference
+- [supermemory](https://github.com/supermemoryai/opencode-supermemory) - OpenCode memory plugin
+- [websearch citations](https://github.com/ghoulr/opencode-websearch-cited)
+- [OpenCode Commands](https://opencode.ai/docs/commands/)
 
-- GPT-Researcher: https://github.com/assafelovic/gpt-researcher
-- Onyx: https://github.com/onyx-dot-app/onyx
+### Research Sources
+- [Semantic Scholar API](https://www.semanticscholar.org/product/api/tutorial) - 1 req/s with API key
+- [Anna's Archive API](https://annas-archive.li/faq#api) - free books/papers
