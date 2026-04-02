@@ -364,11 +364,13 @@ First model is default for new sessions.
 |-------|--------|----------------|
 | Authentication | Telegram user ID allowlist | `database/users.py::is_user_allowed()` |
 | Network | Polling only, no public ports | `polling_engine.py` -- outbound only |
-| Secrets | `.env` file (never committed) | `config.py` via pydantic-settings |
+| Secrets | Split `.env` files per service | `.env` (Telegram/X) + `.env.opencode` (LLM keys) |
 | Logging | Structured JSON, secrets filtered | `logging_config.py` -- httpx INFO suppressed |
-| Container | Non-root, read-only /app, no new privileges | Docker multi-stage build |
+| Container | Non-root, read-only, no-new-privileges, cap_drop ALL | Docker multi-stage build + compose |
 | Database | SQLite file, gitignored, parameterized queries | `vault/index/jarvis.db` |
 | X OAuth | OAuth 2.0 PKCE, tokens in DB (not .env) | Callback on localhost only |
+| Supply chain | OpenCode image pinned by digest | Tag + SHA256 in docker-compose.yml |
+| Network isolation | Bridge network, no ports exposed | `jarvis-net` -- opencode only reachable by jarvis |
 
 ## Performance
 
@@ -411,6 +413,43 @@ Every non-private message automatically gets relevant context injected:
 ### Private Mode
 
 Prefix any message with `private:` or `/private ` to skip logging and retrieval.
+
+## Deployment
+
+### Docker Compose (Production)
+
+Two containers on a shared bridge network, health-gated startup.
+
+```
+docker compose up -d    # starts opencode, waits for healthy, then starts jarvis
+```
+
+| Service | Image | Port | Notes |
+|---------|-------|------|-------|
+| opencode | `ghcr.io/anomalyco/opencode` (pinned digest) | 4096 (internal only) | Health: TCP check on 4096 |
+| jarvis | Built from `Dockerfile` (Alpine + PDM) | None (outbound polling) | Depends on opencode healthy |
+
+**Network:** `jarvis-net` (bridge, not internal -- both need outbound). No `ports:` on opencode -- only reachable via Docker DNS.
+
+**Bind mount:** `.:/app/project` on both services. Vault paths (`vault/raw/`, `vault/index/`) resolve via `WORKDIR /app/project` + config.py defaults.
+
+**Secrets split:**
+- `.env` -- Telegram bot token, user ID, X OAuth, Jarvis settings
+- `.env.opencode` -- LLM provider API keys, server password, log level
+
+**Security hardening:**
+- Both containers: `no-new-privileges:true`, `cap_drop: ALL`
+- Jarvis: `read_only: true`, tmpfs for `/tmp`
+- OpenCode image pinned by tag + SHA256 digest
+
+### Key Design Decisions
+
+| Decision | Choice | Rationale |
+|----------|--------|-----------|
+| WORKDIR | `/app/project` | config.py defaults (`vault/index/jarvis.db`, etc.) resolve relative to CWD |
+| Bind mount | `.:/app/project` (single) | Covers vault, `.opencode/`, and source code |
+| OpenCode healthcheck | TCP probe via `/dev/tcp` | Image may lack wget/curl; Jarvis does real HTTP check |
+| init: true | On opencode service | Proper PID 1 signal handling (zombie reaping) |
 
 ## Observability
 

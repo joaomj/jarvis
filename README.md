@@ -16,11 +16,12 @@ Personal AI assistant accessible via Telegram. Chat with OpenCode AI from your p
 git clone https://github.com/yourusername/jarvis.git
 cd jarvis
 cp .env.example .env
-# Edit .env with your tokens (see Configuration below)
+cp .env.opencode.example .env.opencode
+# Edit .env: add TELEGRAM_BOT_ID, TELEGRAM_USER_ID, OPENCODE_SERVER_PASSWORD
+# Edit .env.opencode: add LLM provider API keys, set OPENCODE_SERVER_PASSWORD
 
-# Start services
-./scripts/start-opencode.sh          # Terminal A: OpenCode server
-docker compose up -d jarvis          # Terminal B: Jarvis bot
+# Start both services
+docker compose up -d
 
 # Done! Message your bot on Telegram
 ```
@@ -95,32 +96,37 @@ Copy `.env.example` to `.env` and configure:
 # Required
 TELEGRAM_BOT_ID=your_bot_token_here          # from @BotFather
 TELEGRAM_USER_ID=123456789                   # from @userinfobot
-OPENCODE_URL=http://localhost:4096
 OPENCODE_SERVER_PASSWORD=secure_password_here
 
-# Optional: X Bookmarks (OAuth 2.0)
-X_CLIENT_ID=your_x_client_id_here
-X_CLIENT_SECRET=your_x_client_secret_here
+# In .env.opencode (separate file for OpenCode service)
+OPENCODE_SERVER_PASSWORD=secure_password_here # must match
+OPENAI_API_KEY=sk-...                        # your LLM provider key
 ```
 
 See [Technical Context](docs/tech-context.md#configuration) for all environment variables.
 
 ## Deployment
 
-### Docker (Recommended)
+### Docker Compose (Recommended)
 
 ```bash
-# 1. Start OpenCode server on host
-./scripts/start-opencode.sh
+# Start both OpenCode + Jarvis
+docker compose up -d
 
-# 2. Start Jarvis in Docker
-docker compose up -d jarvis
-
-# 3. Follow logs
+# Follow logs
 docker compose logs -f jarvis
+docker compose logs -f opencode
+
+# Stop
+docker compose down
 ```
 
-To stop: `docker compose stop jarvis`
+Two containers on a shared Docker network:
+- **opencode** -- OpenCode Server (pinned image, health-gated)
+- **jarvis** -- Telegram bot (depends on opencode health check)
+
+Secrets are split: `.env` for Telegram/X, `.env.opencode` for LLM provider keys.
+Vault data (`vault/`) is bind-mounted from the repo directory.
 
 ### Development
 

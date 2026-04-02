@@ -43,7 +43,8 @@ async def test_attachment_ingestion_writes_vault_artifacts_and_indexes_markdown(
 
     assert result is not None
     assert result.indexed is True
-    assert "/attachments/raw/" in result.raw_path
+    assert "/attachments/" in result.raw_path
+    assert "/raw/" not in result.raw_path.split("/attachments/")[-1]
     assert result.markdown_path is not None
     assert "/attachments/indexed/" in result.markdown_path
 

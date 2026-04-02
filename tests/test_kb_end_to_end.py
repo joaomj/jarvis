@@ -11,7 +11,7 @@ from jarvis.kb_retrieval import retrieve_chunks
 def test_save_index_answer_flow_fixture(tmp_path) -> None:
     """A saved markdown file can be indexed and retrieved for grounded prompting."""
     db = Database(str(tmp_path / "test.db"))
-    content_dir = tmp_path / ".jarvis" / "url-saves"
+    content_dir = tmp_path / "vault" / "raw" / "url-saves"
     content_dir.mkdir(parents=True)
 
     article = content_dir / "saved.md"

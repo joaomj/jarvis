@@ -1,47 +1,78 @@
 services:
+  opencode:
+    # SECURITY: Pin by digest, never :latest. Bump via: make bump-opencode
+    image: ghcr.io/anomalyco/opencode:0.0.0-beta-202603292310@sha256:d31bd08dac5c9484f418bf1932a1347b9d1cbed95c8faaf0a469e72b46e52224
+    container_name: opencode
+    init: true                                # proper signal handling (PID 1 zombie reaping)
+    command: serve --port 4096 --hostname 0.0.0.0 --print-logs
+    working_dir: /app/project
+    volumes:
+      - .:/app/project                        # jarvis repo = OpenCode project dir
+    environment:
+      XDG_DATA_HOME: /app/project/vault/raw
+      XDG_STATE_HOME: /app/project/vault/index/opencode-state
+      OPENCODE_SERVER_PASSWORD: ${OPENCODE_SERVER_PASSWORD}
+      OPENCODE_LOG_LEVEL: ${OPENCODE_LOG_LEVEL:-INFO}
+    env_file:
+      - .env.opencode                         # only LLM provider keys + server password
+    healthcheck:
+      # TCP check on port 4096 -- busybox wget spider for liveness
+      # Jarvis verifies HTTP /global/health end-to-end
+      test: ["CMD-SHELL", "wget --spider -q http://localhost:4096 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+    networks:
+      - jarvis-net
+
   jarvis:
     build:
       context: .
       dockerfile: Dockerfile
     container_name: jarvis
-    
+    depends_on:
+      opencode:
+        condition: service_healthy
     env_file:
-      - .env
-    
-    # No ports needed for polling mode (outbound only)
-    
+      - .env                                  # all secrets (Telegram, X, etc.)
+    environment:
+      OPENCODE_URL: http://opencode:4096      # Docker DNS, overrides .env localhost default
+      # No vault path overrides needed. WORKDIR /app/project + config.py defaults
+      # (vault/index/jarvis.db, vault/raw/url-saves, etc.) resolve correctly.
     volumes:
-      # Persist sessions and database
-      - ./.jarvis:/app/.jarvis
-      - ./data:/app/data
-    
-    # Resource limits
+      - .:/app/project                        # single bind mount covers vault, .opencode/, src/
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp:noexec,nosuid,size=100m
     deploy:
       resources:
         limits:
           cpus: '1.0'
           memory: 512M
-        reservations:
-          cpus: '0.25'
-          memory: 128M
-    
-    restart: unless-stopped
-    
-    # Security
-    security_opt:
-      - no-new-privileges:true
-    
-    read_only: true
-    
-    tmpfs:
-      - /tmp:noexec,nosuid,size=100m
-    
-    # No health check needed (outbound polling)
-    
+    networks:
+      - jarvis-net
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
-        labels: "service"
-        env: "JARVIS_ENV,LOG_LEVEL"
+
+networks:
+  jarvis-net:
+    driver: bridge

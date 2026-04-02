@@ -43,7 +43,7 @@ class BotAttachmentsMixin:
 
         source_root = Path(self.settings.vault_root).expanduser() / "raw" / "attachments"
         day_path = captured_at.strftime("%Y/%m/%d")
-        raw_dir = source_root / "raw" / day_path
+        raw_dir = source_root / day_path
         md_dir = source_root / "indexed" / day_path
         raw_dir.mkdir(parents=True, exist_ok=True)
         md_dir.mkdir(parents=True, exist_ok=True)

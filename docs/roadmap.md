@@ -128,6 +128,18 @@ Unified hybrid context retrieval with semantic search. RRF fusion of FTS5 + sqli
 - Database moved to `vault/index/jarvis.db`
 - Dead code removed (System B: hybrid_retrieval, embedding, embedding_indexer, embedding_ops)
 
+### Phase 12: Container Migration [COMPLETE]
+
+Replaced 2-terminal manual startup with single `docker compose up -d`:
+- OpenCode runs as a container (pinned digest image, health-gated)
+- Jarvis container depends on OpenCode health check
+- Single bind mount `.:/app/project` for vault paths
+- Split `.env` files per service (least privilege)
+- Security hardening: `cap_drop: ALL`, `no-new-privileges`, `read_only`, `init: true`
+- Fixed `bot_attachments.py` double-nesting bug (`vault/raw/attachments/raw/YYYY` -> `vault/raw/attachments/YYYY`)
+- Updated test paths from `.jarvis/` to `vault/raw/` convention
+- Deleted `scripts/start-opencode.sh` (replaced by opencode service)
+
 ## Priority Order
 
 ### Immediate

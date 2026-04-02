@@ -23,7 +23,7 @@ def _write_markdown(path, title: str, body: str) -> None:
 def test_indexer_is_idempotent_for_unchanged_files(tmp_path) -> None:
     """Re-indexing unchanged markdown does not duplicate chunk rows."""
     db = Database(str(tmp_path / "test.db"))
-    content_dir = tmp_path / ".jarvis" / "url-saves"
+    content_dir = tmp_path / "vault" / "raw" / "url-saves"
     content_dir.mkdir(parents=True)
 
     article_path = content_dir / "a.md"
@@ -53,7 +53,7 @@ def test_indexer_is_idempotent_for_unchanged_files(tmp_path) -> None:
 def test_indexer_replaces_chunks_when_file_changes(tmp_path) -> None:
     """Changed markdown replaces old chunk set."""
     db = Database(str(tmp_path / "test.db"))
-    content_dir = tmp_path / ".jarvis" / "url-saves"
+    content_dir = tmp_path / "vault" / "raw" / "url-saves"
     content_dir.mkdir(parents=True)
 
     article_path = content_dir / "b.md"
@@ -87,7 +87,7 @@ def test_indexer_replaces_chunks_when_file_changes(tmp_path) -> None:
 def test_indexer_logs_partial_failures_and_continues(tmp_path) -> None:
     """One unreadable markdown file does not stop full indexing pass."""
     db = Database(str(tmp_path / "test.db"))
-    content_dir = tmp_path / ".jarvis" / "url-saves"
+    content_dir = tmp_path / "vault" / "raw" / "url-saves"
     content_dir.mkdir(parents=True)
 
     valid_path = content_dir / "valid.md"
