@@ -8,7 +8,7 @@ license = {text = "MIT"}
 authors = [
     {name = "Jarvis Development Team"}
 ]
-keywords = ["telegram", "bot", "ai", "assistant", "opencode"]
+keywords = ["telegram", "bot", "ai", "assistant"]
 classifiers = [
     "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
@@ -19,14 +19,11 @@ classifiers = [
 ]
 
 dependencies = [
-    "python-telegram-bot>=21.0",
     "httpx>=0.27.0",
     "pydantic>=2.0",
     "pydantic-settings>=2.0",
-    "structlog>=24.0",
-    "orjson>=3.9.0",
-    "sentence-transformers>=5.3.0",
-    "sqlite-vec>=0.1.6",
+    "pydantic-ai>=1.89.1",
+    "pyyaml>=6.0.3",
 ]
 
 [project.optional-dependencies]
@@ -40,19 +37,26 @@ dev = [
     "respx>=0.22.0",
 ]
 
+[tool.hatch.build.targets.wheel]
+packages = ["src/"]
+
 [project.scripts]
-jarvis = "jarvis.__main__:main"
+jarvis = "src.bot:main"
 
 [build-system]
-requires = ["pdm-backend"]
-build-backend = "pdm.backend"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
-[tool.pdm]
-distribution = true
+[dependency-groups]
+dev = [
+    "types-pyyaml>=6.0.12.20260408",
+]
 
 [tool.ruff]
 target-version = "py311"
 line-length = 100
+
+[tool.ruff.lint]
 select = [
     "E",   # pycodestyle errors
     "W",   # pycodestyle warnings
@@ -72,10 +76,10 @@ select = [
 ]
 ignore = ["E501", "B008"]
 
-[tool.ruff.pydocstyle]
+[tool.ruff.lint.pydocstyle]
 convention = "google"
 
-[tool.ruff.per-file-ignores]
+[tool.ruff.lint.per-file-ignores]
 "tests/*" = ["S101", "ARG001", "PLR", "ERA", "S105", "S106", "W293", "PLC0415", "ARG002"]
 "scripts/*" = ["S", "PLR", "ARG"]
 "__main__.py" = ["B008"]
@@ -102,11 +106,10 @@ addopts = "-v --tb=short"
 markers = [
     "fast: unit/component tests with no network",
     "integration: tests using DB/filesystem and local fake servers",
-    "e2e_opencode: optional smoke tests against a real OpenCode server",
 ]
 
 [tool.coverage.run]
-source = ["src/jarvis"]
+source = ["src"]
 branch = true
 
 [tool.coverage.report]

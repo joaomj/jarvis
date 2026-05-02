@@ -19,7 +19,11 @@ env/
 
 # PDM
 .pdm-build/
-.lock
+.pdm.toml
+.pdm-python
+
+# UV (uv.lock should be committed!)
+.uv/
 
 # IDE
 .vscode/
