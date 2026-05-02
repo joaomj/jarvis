@@ -2,175 +2,85 @@
 
 [![Python 3.11+](https://img.shields.io/badge/python-3.11+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Docker](https://img.shields.io/badge/docker-supported-2496ED?logo=docker)](https://www.docker.com/)
+[![Ruff](https://img.shields.io/badge/code%20style-ruff-000000.svg)](https://github.com/astral-sh/ruff)
+[![uv](https://img.shields.io/badge/package%20manager-uv-4f46e5)](https://github.com/astral-sh/uv)
 
-Personal AI assistant accessible via Telegram. Chat with OpenCode AI from your phone, query X bookmarks naturally, no public URLs required.
+Personal AI assistant accessible via Telegram. Chat with a PydanticAI-powered butler from your phone.
 
-> **Disclaimer**: This project uses OpenCode but is not built by the OpenCode team
-> and is not affiliated with [OpenCode](https://opencode.ai) in any way.
-
-## Quick Start
-
-```bash
-# Clone and configure
-git clone https://github.com/yourusername/jarvis.git
-cd jarvis
-cp .env.example .env
-cp .env.opencode.example .env.opencode
-# Edit .env: add TELEGRAM_BOT_ID, TELEGRAM_USER_ID, OPENCODE_SERVER_PASSWORD
-# Edit .env.opencode: add LLM provider API keys, set OPENCODE_SERVER_PASSWORD
-
-# Start both services
-docker compose up -d
-
-# Done! Message your bot on Telegram
+```
+You: What's on my mind today?
+Jarvis: Based on your memory, you were researching agent architectures...
 ```
 
 ## Features
 
-- Chat with OpenCode AI via Telegram
-- All OpenCode commands: `/compact`, `/undo`, `/redo`, `/share`, etc.
-- File references: `explain @src/config.py`
-- Bash commands: `!ls -la`
-- X bookmarks sync with natural language queries
-- Auto-retrieval with hybrid search (FTS5 + sqlite-vec + RRF fusion)
-- Attachment ingestion and indexing
-- Source-grounded answers with citations
-- Single-user security
-- Polling mode -- runs locally, no public URLs
+- **AI chat via Telegram** — poll-based, no public URLs required
+- **Skill system** — extend with plugins (`/alfred`, `/deep-research`, `/summarize`)
+- **Persistent memory** — SOUL.md, MEMORY.md, USER.md stored locally in `vault/`
+- **FTS5 conversation search** — full-text search across all past messages
+- **Single-user** — Telegram user ID allowlist
+- **Containerized** — Docker Compose ready
 
-## Usage Examples
-
-### Chat with AI
-```
-You: Explain the bug in src/auth.py
-Jarvis: [AI analyzes code]
-
-You: /compact
-Jarvis: [Conversation compacted]
-```
-
-### Query X Bookmarks
-```
-You: What did I save last week?
-Jarvis: Bookmarks from last week (12 total)...
-
-You: What did I bookmark about AI?
-Jarvis: Bookmarks matching "AI" (8 total)...
-```
-
-### Save and Retrieve URLs
-```
-You: /save https://example.com/article
-Jarvis: Saved and indexed.
-
-You: Find that article about Rust async
-Jarvis: [grounded answer from saved content with citations]
-```
-
-### Private Mode
-```
-You: private: what do you think about this idea?
-Jarvis: [replies without logging or retrieving context]
-```
-
-### Attachments
-```
-You: [attach notes.txt] what does this say?
-Jarvis: [grounded answer from attachment content]
-```
-
-## Commands
-
-**Local Commands:** `/models`, `/new`, `/sessions`, `/save <url>`, `/model <provider/model>`
-
-**OpenCode Commands:** `!compact`, `!undo`, `!share`, etc. (forwarded to OpenCode)
-
-**Blocked (TUI-only):** `/exit`, `/editor`, `/themes`
-
-## Configuration
-
-Copy `.env.example` to `.env` and configure:
+## Quick Start
 
 ```bash
-# Required
-TELEGRAM_BOT_ID=your_bot_token_here          # from @BotFather
-TELEGRAM_USER_ID=123456789                   # from @userinfobot
-OPENCODE_SERVER_PASSWORD=secure_password_here
+git clone https://github.com/yourusername/jarvis.git
+cd jarvis
+cp .env.example .env
+# Edit .env: add TELEGRAM_BOT_TOKEN and TELEGRAM_USER_ID
 
-# In .env.opencode (separate file for OpenCode service)
-OPENCODE_SERVER_PASSWORD=secure_password_here # must match
-OPENAI_API_KEY=sk-...                        # your LLM provider key
-```
+# Run locally
+uv sync
+uv run jarvis
 
-See [Technical Context](docs/tech-context.md#configuration) for all environment variables.
-
-## Deployment
-
-### Docker Compose (Recommended)
-
-```bash
-# Start both OpenCode + Jarvis
+# Or with Docker
 docker compose up -d
-
-# Follow logs
-docker compose logs -f jarvis
-docker compose logs -f opencode
-
-# Stop
-docker compose down
 ```
 
-Two containers on a shared Docker network:
-- **opencode** -- OpenCode Server (pinned image, health-gated)
-- **jarvis** -- Telegram bot (depends on opencode health check)
+## Skills
 
-Secrets are split: `.env` for Telegram/X, `.env.opencode` for LLM provider keys.
-Vault data (`vault/`) is bind-mounted from the repo directory.
+| Command | Skill | Description |
+|---------|-------|-------------|
+| `/alfred <query>` | Alfred | Personal counselling with Alfred Pennyworth persona |
+| `/deep-research <topic>` | Deep Research | Detailed technical reports from trustworthy sources |
+| `/summarize <content>` | Summarize | Summarize content, articles, text |
+| `/private <message>` | Private | Ask without logging or retrieval |
 
-### Development
+## Development
 
 ```bash
 # Install dependencies
-pdm install
-
-# Run locally
-pdm run python -m jarvis
+uv sync
 
 # Run tests
-pdm run pytest
+uv run pytest
 
-# Run tests with coverage
-pdm run pytest --cov=src/jarvis --cov-report=term-missing
+# With coverage
+uv run pytest --cov=src --cov-report=term-missing
 
-# Lint
-pdm run ruff check .
-pdm run ruff format .
+# Lint & type-check
+uv run ruff check src/
+uv run mypy src/
 ```
 
-### Backups
+## Configuration
 
-- **Database:** `vault/index/jarvis.db`
-- **Vault:** `vault/` directory (raw content and indexes)
-- **Config:** `.env` file (contains secrets)
+Copy `.env.example` to `.env`:
 
-### Monitoring
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `TELEGRAM_BOT_TOKEN` | Yes | From [@BotFather](https://t.me/botfather) |
+| `TELEGRAM_USER_ID` | Yes | From [@userinfobot](https://t.me/userinfobot) |
+| `LLM_API_KEY` | Yes | LLM provider API key |
 
-- Container health status
-- Structured JSON logs with correlation IDs
-- Key metrics: sync status, query performance, error rates
+See [docs/tech-context.md](docs/tech-context.md) for full configuration reference.
 
 ## Documentation
 
-- [Technical Context](docs/tech-context.md) -- Architecture, state machines, design decisions, security
-- [Database Schema](docs/database-schema.md) -- SQLite table and index reference
-- [Roadmap](docs/roadmap.md) -- Implementation phases and future plans
+- [Technical Context](docs/tech-context.md) — Architecture, design decisions, security
+- [Database Schema](docs/database-schema.md) — SQLite schema reference
+- [Roadmap](docs/roadmap.md) — Vision and future plans
 
 ## License
 
-MIT License -- see [LICENSE](LICENSE)
-
-## Acknowledgments
-
-- [OpenCode](https://opencode.ai) -- The AI coding assistant that powers Jarvis
-- [python-telegram-bot](https://python-telegram-bot.org/) -- Telegram bot framework
+MIT License — see [LICENSE](LICENSE)
