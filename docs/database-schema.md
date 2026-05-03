@@ -1,6 +1,6 @@
 # Database Schema
 
-SQLite database structure for Jarvis conversation store.
+SQLite database structure for Alfred conversation store.
 
 ## Core Table
 

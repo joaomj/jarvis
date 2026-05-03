@@ -14,9 +14,9 @@ def test_settings_defaults():
     )
     assert s.telegram_bot_token == "test:token"
     assert s.telegram_user_id == 12345
-    assert s.model == "anthropic:claude-sonnet-4-20250514"
+    assert s.model == "opencode-go:deepseek-v4-flash"
     assert s.log_level == "INFO"
-    assert s.jarvis_env == "production"
+    assert s.alfred_env == "production"
     assert float(s.telegram_polling_interval) >= 0.5
 
 

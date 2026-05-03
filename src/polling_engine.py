@@ -29,6 +29,10 @@ class PollingEngine:
         self._backoff = 1
         self._client: httpx.AsyncClient | None = None
 
+    @property
+    def _api_base(self) -> str:
+        return f"{TELEGRAM_API}{self._token}"
+
     async def start(
         self, handler: Callable[[dict[str, Any]], Awaitable[None]]
     ) -> None:
@@ -42,10 +46,54 @@ class PollingEngine:
             except Exception as exc:
                 await self._handle_error(exc)
 
+    async def send_message(
+        self, chat_id: int, text: str, reply_markup: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """Send a message to a Telegram chat."""
+        if self._client is None:
+            raise RuntimeError("PollingEngine not started")
+        payload: dict[str, Any] = {"chat_id": chat_id, "text": text}
+        if reply_markup:
+            payload["reply_markup"] = reply_markup
+        resp = await self._client.post(
+            f"{self._api_base}/sendMessage", json=payload
+        )
+        resp.raise_for_status()
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def answer_callback_query(
+        self, callback_query_id: str, text: str = ""
+    ) -> dict[str, Any]:
+        """Answer a Telegram callback query (dismiss the loading indicator)."""
+        if self._client is None:
+            raise RuntimeError("PollingEngine not started")
+        resp = await self._client.post(
+            f"{self._api_base}/answerCallbackQuery",
+            json={"callback_query_id": callback_query_id, "text": text},
+        )
+        resp.raise_for_status()
+        result: dict[str, Any] = resp.json()
+        return result
+
+    async def edit_message_text(
+        self, chat_id: int, message_id: int, text: str
+    ) -> dict[str, Any]:
+        """Edit an existing message (e.g. to remove keyboard after selection)."""
+        if self._client is None:
+            raise RuntimeError("PollingEngine not started")
+        resp = await self._client.post(
+            f"{self._api_base}/editMessageText",
+            json={"chat_id": chat_id, "message_id": message_id, "text": text},
+        )
+        resp.raise_for_status()
+        result: dict[str, Any] = resp.json()
+        return result
+
     async def _fetch_updates(self) -> list[dict[str, Any]]:
         if self._client is None:
             return []
-        url = f"{TELEGRAM_API}{self._token}/getUpdates"
+        url = f"{self._api_base}/getUpdates"
         resp = await self._client.post(
             url,
             json={

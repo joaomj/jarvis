@@ -1,10 +1,10 @@
-"""Test JarvisAgent: skill suggestion, streaming, system prompt composition."""
+"""Test AlfredAgent: skill suggestion, streaming, system prompt composition."""
 import tempfile
 from pathlib import Path
 
 import pytest
 
-from src.agent import JarvisAgent, JarvisDeps
+from src.agent import AlfredAgent, AlfredDeps
 from src.conversation import ConversationStore
 from src.memory import MemoryManager
 from src.skill_loader import SkillLoader
@@ -12,9 +12,9 @@ from src.skill_loader import SkillLoader
 
 @pytest.fixture
 def agent():
-    """JarvisAgent with temp skills, memory, conversation."""
+    """AlfredAgent with temp skills, memory, conversation."""
     root = Path(tempfile.mkdtemp())
-    (root / "SOUL.md").write_text("You are Jarvis.")
+    (root / "SOUL.md").write_text("You are Alfred.")
     (root / "MEMORY.md").write_text("User is called Master.")
     (root / "USER.md").write_text("language: english")
 
@@ -38,17 +38,17 @@ def search_vault(query: str) -> str:
 """)
 
     conv_path = root / "conversations.db"
-    deps = JarvisDeps(
+    deps = AlfredDeps(
         memory=MemoryManager(root),
         conversation=ConversationStore(str(conv_path)),
         skill_loader=SkillLoader(skills_dir),
     )
-    return JarvisAgent(deps, soul_path=root / "SOUL.md")
+    return AlfredAgent(deps, soul_path=root / "SOUL.md")
 
 
 def test_agent_has_soul_in_system_prompt(agent):
     """Agent system prompt includes SOUL.md content."""
-    assert "You are Jarvis." in agent.get_system_prompt()
+    assert "You are Alfred." in agent.get_system_prompt()
 
 
 def test_agent_can_run_message():

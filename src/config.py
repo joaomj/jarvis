@@ -6,6 +6,8 @@ from pathlib import Path
 from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from src.models import DEFAULT_MODEL_ID
+
 MIN_POLLING_INTERVAL = 0.5
 MIN_POLLING_TIMEOUT = 10
 MAX_POLLING_TIMEOUT = 120
@@ -26,8 +28,8 @@ class Settings(BaseSettings):
     )
 
     model: str = Field(
-        default="anthropic:claude-sonnet-4-20250514",
-        description="PydanticAI model identifier",
+        default=DEFAULT_MODEL_ID,
+        description="PydanticAI model identifier (provider:model-name)",
     )
 
     telegram_bot_token: str = Field(
@@ -46,7 +48,7 @@ class Settings(BaseSettings):
     )
 
     database_path: str = Field(
-        default="vault/index/jarvis.db",
+        default="vault/index/alfred.db",
         description="Path to SQLite database",
     )
 
@@ -63,7 +65,15 @@ class Settings(BaseSettings):
         default="INFO",
         description="Logging level (DEBUG, INFO, WARNING, ERROR)",
     )
-    jarvis_env: str = Field(
+    opencode_go_api_key: str = Field(
+        default="",
+        description="OpenCode Go API key (from opencode.ai/auth)",
+    )
+    opencode_go_base_url: str = Field(
+        default="https://opencode.ai/zen/go/v1",
+        description="OpenCode Go API base URL",
+    )
+    alfred_env: str = Field(
         default="production",
         description="Environment name (development, production)",
     )

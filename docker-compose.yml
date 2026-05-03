@@ -1,13 +1,15 @@
 services:
-  jarvis:
+  alfred:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: jarvis
+    container_name: alfred
     env_file:
       - .env
     volumes:
-      - .:/app/project
+      - ./vault:/app/vault
+      - ./soul/MEMORY.md:/app/soul/MEMORY.md
+      - ./soul/USER.md:/app/soul/USER.md
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true

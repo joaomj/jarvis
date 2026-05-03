@@ -12,7 +12,7 @@ def memory():
     """MemoryManager backed by temp directory."""
     with tempfile.TemporaryDirectory() as tmp:
         root = Path(tmp)
-        (root / "SOUL.md").write_text("You are Jarvis.")
+        (root / "SOUL.md").write_text("You are Alfred.")
         (root / "MEMORY.md").write_text("")
         (root / "USER.md").write_text("")
         yield MemoryManager(root)
@@ -24,7 +24,7 @@ def test_get_context_returns_soul_and_memory_and_user(memory):
     memory.update_user_profile("language", "english")
 
     ctx = memory.get_context()
-    assert "You are Jarvis." in ctx
+    assert "You are Alfred." in ctx
     assert "User prefers short answers." in ctx
     assert "language: english" in ctx
 
@@ -55,4 +55,4 @@ def test_update_user_profile(memory):
 
 def test_read_soul_md(memory):
     """read_soul_md returns SOUL.md content."""
-    assert "You are Jarvis." in memory.read_soul_md()
+    assert "You are Alfred." in memory.read_soul_md()

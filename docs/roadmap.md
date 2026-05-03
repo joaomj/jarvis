@@ -1,6 +1,6 @@
 # Roadmap
 
-Jarvis: a personal AI assistant (butler, consigliere) accessible via Telegram.
+Alfred: a personal AI assistant (butler, consigliere) accessible via Telegram.
 
 ## Vision & Principles
 
@@ -16,7 +16,7 @@ Jarvis: a personal AI assistant (butler, consigliere) accessible via Telegram.
 
 ### Daily Use
 - Chat about topics (History, Economics, random questions)
-- Personal counselling ("Alfred Pennyworth" persona - Christopher Nolan's trilogy)
+- Personal counselling (Alfred persona — Christopher Nolan's trilogy)
 - Private questions (not recorded)
 
 ### Research
@@ -30,7 +30,7 @@ Jarvis: a personal AI assistant (butler, consigliere) accessible via Telegram.
 
 ## Current Status
 
-Jarvis is a standalone PydanticAI agent with a Telegram interface. No external dependencies beyond the LLM provider.
+Alfred is a standalone PydanticAI agent with a Telegram interface. No external dependencies beyond the LLM provider.
 
 **Implemented:**
 - PydanticAI agent with skill-based architecture
@@ -38,8 +38,10 @@ Jarvis is a standalone PydanticAI agent with a Telegram interface. No external d
 - Memory management (SOUL.md, MEMORY.md, USER.md)
 - Conversation store (FTS5-backed message history)
 - Telegram gateway (polling, command routing, streaming)
+- Model switching via /model inline keyboard
+- Structured JSON logging with correlation IDs
 - Docker containerization
-- 5 skills: core, alfred, deep-research, private, summarize
+- 4 skills: core, deep-research, private, summarize
 
 **Planned:**
 - X bookmarks sync
@@ -53,3 +55,4 @@ Jarvis is a standalone PydanticAI agent with a Telegram interface. No external d
 - **Phase 0-8**: Original OpenCode-bridge architecture (replaced)
 - **Phase 9**: Decoupled from OpenCode, rewrote as standalone PydanticAI agent
 - **Phase 10**: Skill-based architecture with memory management
+- **Phase 11**: Jarvis → Alfred rename, OpenCode Go provider, model menu, structured logging

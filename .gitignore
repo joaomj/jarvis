@@ -43,6 +43,10 @@ vault/
 # Logs
 *.log
 
+# Jarvis soul — SOUL.md is committed; MEMORY.md/USER.md are user data
+/soul/MEMORY.md
+/soul/USER.md
+
 # Jarvis local state
 /.jarvis/
 

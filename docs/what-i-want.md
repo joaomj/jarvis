@@ -10,7 +10,7 @@
 
 ## My vision
 - i find the current, thread-style UI from chatgpt and all other big chatbots abhorent. Who wants to go through hundreds of chats?
-- it will be better if the UI aligns with the fact the agent is a personal assistant, a consigliere like Bruce Wayne's Alfred Pennyworth or Iron Man's **Jarvis**.
+- it will be better if the UI aligns with the fact the agent is a personal assistant, a consigliere like Bruce Wayne's Alfred Pennyworth or Iron Man's Jarvis.
 - this means just one chat, continuous, chat. A telegram bot would fit well.
 
 ## Architecture
